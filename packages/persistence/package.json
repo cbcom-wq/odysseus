@@ -1,0 +1,22 @@
+{
+  "name": "@odysseus/persistence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "dependencies": {
+    "@odysseus/domain": "0.1.0"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json"
+  }
+}

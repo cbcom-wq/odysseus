@@ -1094,6 +1094,42 @@ button {
   padding: 0 2px;
 }
 
+.notice--warn {
+  border-left-color: var(--money);
+  background: var(--money-soft);
+}
+
+.save {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #5d7581;
+}
+
+.save--warn {
+  color: #d9a066;
+}
+
+.tab--danger {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.tab--danger:hover {
+  color: var(--flag);
+}
+
+.booting {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--ink-2);
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
 .blank {
   text-align: center;
   padding: 60px 20px;

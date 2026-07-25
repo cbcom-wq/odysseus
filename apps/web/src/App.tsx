@@ -19,42 +19,78 @@ import {
   transitionCard,
   updateOption,
 } from '@odysseus/domain';
-import { buildFixtureTrip } from '@odysseus/providers';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CardDraft } from './CardEditor.js';
 import { CardEditor, draftFromOption, emptyDraft, optionFrom } from './CardEditor.js';
 import { CreateTripDialog } from './CreateTripDialog.js';
 import { DayView } from './DayView.js';
 import { OptionsPanel } from './OptionsPanel.js';
+import { SaveStatus } from './SaveStatus.js';
 import { StructureView } from './StructureView.js';
 import { dateRange, money, tripSubtitle } from './format.js';
+import { useTripStore } from './useTripStore.js';
 
 type View = 'structure' | 'days';
+type Store = ReturnType<typeof useTripStore>;
 
 type Editor =
   | { mode: 'new-card'; anchor: CardAnchor; kinds: readonly CardKind[] }
   | { mode: 'new-option'; cardId: string }
   | { mode: 'edit-option'; cardId: string; optionId: string };
 
+/** Loads trips, then hands one to the workspace. Keeps the loading path out of the planning UI. */
 export function App() {
-  const [trips, setTrips] = useState<Trip[]>(() => [buildFixtureTrip()]);
-  const [activeId, setActiveId] = useState<string>(() => trips[0]!.id);
+  const store = useTripStore();
+  const [activeId, setActiveId] = useState<string | undefined>();
+
+  // Settle on a trip once they have loaded, and again if the open one is deleted.
+  useEffect(() => {
+    if (store.trips.length === 0) return;
+    if (activeId === undefined || !store.trips.some((t) => t.id === activeId)) {
+      setActiveId(store.trips[0]!.id);
+    }
+  }, [store.trips, activeId]);
+
+  const trip = store.trips.find((t) => t.id === activeId);
+
+  if (!trip) {
+    return (
+      <div className="booting">
+        {store.saveState === 'loading'
+          ? 'Opening your trips…'
+          : (store.error ?? 'No trips yet. Reload to start a new one.')}
+      </div>
+    );
+  }
+
+  return <Workspace key={trip.id} store={store} trip={trip} onOpenTrip={setActiveId} />;
+}
+
+function Workspace({
+  store,
+  trip,
+  onOpenTrip,
+}: {
+  store: Store;
+  trip: Trip;
+  onOpenTrip: (id: string) => void;
+}) {
+  const { trips, saveTrip: update, deleteTrip } = store;
+
   const [view, setView] = useState<View>('days');
-  const [selectedCardId, setSelectedCardId] = useState<string | undefined>('c-inbound');
+  const [selectedCardId, setSelectedCardId] = useState<string | undefined>();
   const [creating, setCreating] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  const trip = trips.find((t) => t.id === activeId) ?? trips[0]!;
-
-  const update = (next: Trip) => setTrips((all) => all.map((t) => (t.id === next.id ? next : t)));
 
   /** Apply an edit that may invalidate cards, and say so rather than letting them vanish. */
   const applyEdit = (result: { trip: Trip; removedCardIds: readonly string[] }, why: string) => {
     update(result.trip);
     if (result.removedCardIds.length > 0) {
       const n = result.removedCardIds.length;
-      setNotice(`${why} ${n} card${n === 1 ? '' : 's'} no longer applied, so ${n === 1 ? 'it was' : 'they were'} removed.`);
+      setNotice(
+        `${why} ${n} card${n === 1 ? '' : 's'} no longer applied, so ${n === 1 ? 'it was' : 'they were'} removed.`,
+      );
       if (result.removedCardIds.includes(selectedCardId ?? '')) setSelectedCardId(undefined);
     }
   };
@@ -94,12 +130,11 @@ export function App() {
   };
 
   /**
-   * Pulling a duration control changes how long you *want* to stay. It does not collapse the range
-   * to that number.
+   * Pulling a duration control changes how long you *want* to stay, not the range itself.
    *
-   * Collapsing would destroy the flexibility the traveller authored, and it would be a lie: how
-   * long you actually get somewhere is decided by the legs either side of it. Record the wish, and
-   * let the schedule show what it can give.
+   * Collapsing the range would destroy the flexibility the traveller authored, and it would be a
+   * lie: how long you actually get somewhere is decided by the legs either side of it. Record the
+   * wish and let the schedule show what it can give.
    */
   const changeDuration = (segmentId: string, nights: number) => {
     update({
@@ -166,18 +201,9 @@ export function App() {
   };
 
   const startTrip = (created: Trip) => {
-    setTrips((all) => [...all, created]);
-    setActiveId(created.id);
-    setSelectedCardId(undefined);
-    setView('structure'); // nothing is dated yet, so structure is the only useful lens
+    update(created);
+    onOpenTrip(created.id);
     setCreating(false);
-    setNotice('Trip started. Add flights, places to stay, and things to do as you find them.');
-  };
-
-  const openTrip = (id: string) => {
-    setActiveId(id);
-    setSelectedCardId(undefined);
-    setNotice(null);
   };
 
   const dates =
@@ -196,10 +222,20 @@ export function App() {
         </div>
 
         <div className="rail__group">Plan</div>
-        <button type="button" className="rail__item" aria-current={view === 'structure'} onClick={() => setView('structure')}>
+        <button
+          type="button"
+          className="rail__item"
+          aria-current={view === 'structure'}
+          onClick={() => setView('structure')}
+        >
           Structure
         </button>
-        <button type="button" className="rail__item" aria-current={view === 'days'} onClick={() => setView('days')}>
+        <button
+          type="button"
+          className="rail__item"
+          aria-current={view === 'days'}
+          onClick={() => setView('days')}
+        >
           Days
         </button>
 
@@ -209,8 +245,8 @@ export function App() {
             key={t.id}
             type="button"
             className="rail__item"
-            aria-current={t.id === activeId}
-            onClick={() => openTrip(t.id)}
+            aria-current={t.id === trip.id}
+            onClick={() => onOpenTrip(t.id)}
           >
             {t.name}
           </button>
@@ -230,7 +266,9 @@ export function App() {
           Collections
         </button>
 
-        <div className="rail__foot">Slice 1. Nothing is saved between sessions yet.</div>
+        <div className="rail__foot">
+          <SaveStatus state={store.saveState} savedAt={store.savedAt} ephemeral={store.ephemeral} />
+        </div>
       </nav>
 
       <main className="main">
@@ -263,20 +301,71 @@ export function App() {
           </div>
 
           <div className="tabs" role="tablist">
-            <button type="button" className="tab" role="tab" aria-selected={view === 'structure'} onClick={() => setView('structure')}>
+            <button
+              type="button"
+              className="tab"
+              role="tab"
+              aria-selected={view === 'structure'}
+              onClick={() => setView('structure')}
+            >
               Structure
             </button>
-            <button type="button" className="tab" role="tab" aria-selected={view === 'days'} onClick={() => setView('days')}>
+            <button
+              type="button"
+              className="tab"
+              role="tab"
+              aria-selected={view === 'days'}
+              onClick={() => setView('days')}
+            >
               Days
+            </button>
+            <button
+              type="button"
+              className="tab tab--danger"
+              onClick={() => {
+                if (window.confirm(`Delete ${trip.name}? This cannot be undone.`)) {
+                  deleteTrip(trip.id);
+                }
+              }}
+            >
+              Delete trip
             </button>
           </div>
         </header>
 
         <div className="scroll">
+          {store.problems.length > 0 ? (
+            <div className="notice notice--warn">
+              <span>
+                {store.problems.length} saved trip{store.problems.length === 1 ? '' : 's'} could not
+                be opened: {store.problems.map((p) => `${p.id} — ${p.reason}`).join('; ')}
+              </span>
+              <button
+                type="button"
+                className="notice__close"
+                onClick={store.dismissProblems}
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          ) : null}
+
+          {store.saveState === 'error' && store.error ? (
+            <div className="notice notice--warn">
+              <span>{store.error}</span>
+            </div>
+          ) : null}
+
           {notice ? (
             <div className="notice">
               <span>{notice}</span>
-              <button type="button" className="notice__close" onClick={() => setNotice(null)} aria-label="Dismiss">
+              <button
+                type="button"
+                className="notice__close"
+                onClick={() => setNotice(null)}
+                aria-label="Dismiss"
+              >
                 ✕
               </button>
             </div>
@@ -285,7 +374,11 @@ export function App() {
           {conflicts.length > 0 ? (
             <div className="conflicts">
               {conflicts.map((conflict, i) => (
-                <div key={`${conflict.code}-${i}`} className="conflict" data-severity={conflict.severity}>
+                <div
+                  key={`${conflict.code}-${i}`}
+                  className="conflict"
+                  data-severity={conflict.severity}
+                >
                   <span className="conflict__code">{conflict.code.replace(/_/g, ' ')}</span>
                   <span>{conflict.message}</span>
                 </div>
@@ -316,7 +409,9 @@ export function App() {
               selectedCardId={selectedCardId}
               conflictedCardIds={conflictedCardIds}
               onSelectCard={setSelectedCardId}
-              onAdd={(anchor) => setEditor({ mode: 'new-card', anchor, kinds: kindsForAnchor(anchor.kind) })}
+              onAdd={(anchor) =>
+                setEditor({ mode: 'new-card', anchor, kinds: kindsForAnchor(anchor.kind) })
+              }
             />
           ) : (
             <StructureView
@@ -332,7 +427,9 @@ export function App() {
               onAdd={(anchor, kinds) => setEditor({ mode: 'new-card', anchor, kinds })}
               onAddStop={(name, at) => applyEdit(addSegment(trip, name, at), 'Added a stop.')}
               onRemoveStop={(id) => applyEdit(removeSegment(trip, id), 'Removed a stop.')}
-              onMoveStop={(id, delta) => applyEdit(moveSegment(trip, id, delta), 'Reordered your stops.')}
+              onMoveStop={(id, delta) =>
+                applyEdit(moveSegment(trip, id, delta), 'Reordered your stops.')
+              }
             />
           )}
         </div>
@@ -353,7 +450,9 @@ export function App() {
         }}
       />
 
-      {creating ? <CreateTripDialog onCreate={startTrip} onCancel={() => setCreating(false)} /> : null}
+      {creating ? (
+        <CreateTripDialog onCreate={startTrip} onCancel={() => setCreating(false)} />
+      ) : null}
 
       {editing ? (
         <CardEditor
