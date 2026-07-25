@@ -1,0 +1,352 @@
+import type { Card, CardKind, Option, OptionTiming } from '@odysseus/domain';
+import { useState } from 'react';
+
+/**
+ * Entering something you found yourself.
+ *
+ * Until a provider is wired up this is the only way anything gets into a trip, so it has to be
+ * quick and it has to accept partial knowledge. You may have a hotel name and a nightly rate and
+ * nothing else; that is enough to compare it against the rest of the trip. Times are optional
+ * everywhere, and everything can be edited later.
+ */
+
+export interface CardDraft {
+  readonly kind: CardKind;
+  readonly title: string;
+  readonly detail: string;
+  readonly amount: string;
+  readonly perNight: boolean;
+  readonly departDate: string;
+  readonly departTime: string;
+  readonly arriveTime: string;
+  readonly overnight: boolean;
+  readonly durationMinutes: string;
+  readonly startTime: string;
+  readonly endTime: string;
+}
+
+const JOURNEY_KINDS: readonly CardKind[] = ['flight', 'transport'];
+const SLOT_KINDS: readonly CardKind[] = ['activity', 'dining'];
+
+const KIND_LABEL: Record<CardKind, string> = {
+  flight: 'Flight',
+  transport: 'Train, bus, or transfer',
+  lodging: 'Somewhere to stay',
+  activity: 'Something to do',
+  dining: 'Somewhere to eat',
+  note: 'Note',
+};
+
+export function emptyDraft(kind: CardKind): CardDraft {
+  return {
+    kind,
+    title: '',
+    detail: '',
+    amount: '',
+    perNight: kind === 'lodging',
+    departDate: '',
+    departTime: '',
+    arriveTime: '',
+    overnight: false,
+    durationMinutes: '',
+    startTime: '',
+    endTime: '',
+  };
+}
+
+export function draftFromOption(card: Card, option: Option): CardDraft {
+  const base = emptyDraft(card.kind);
+  const timing = option.timing;
+  return {
+    ...base,
+    title: option.title,
+    detail: option.detail ?? '',
+    amount: String(option.cost.amount),
+    perNight: option.cost.kind === 'per-night',
+    ...(timing?.kind === 'journey'
+      ? {
+          departDate: timing.departDate,
+          departTime: timing.departTime,
+          arriveTime: timing.arriveTime,
+          overnight: timing.nightsInTransit === 1,
+          durationMinutes: String(timing.durationMinutes),
+        }
+      : {}),
+    ...(timing?.kind === 'slot' ? { startTime: timing.startTime, endTime: timing.endTime } : {}),
+  };
+}
+
+function timingFrom(draft: CardDraft): OptionTiming | undefined {
+  if (JOURNEY_KINDS.includes(draft.kind)) {
+    // A journey only pins the calendar once it has a date. Without one it still shows up as a plan,
+    // it just cannot move anything around it yet.
+    if (!draft.departDate) return undefined;
+    return {
+      kind: 'journey',
+      departDate: draft.departDate,
+      departTime: draft.departTime || '09:00',
+      arriveTime: draft.arriveTime || '12:00',
+      nightsInTransit: draft.overnight ? 1 : 0,
+      durationMinutes: Number(draft.durationMinutes) || 120,
+    };
+  }
+  if (SLOT_KINDS.includes(draft.kind) && draft.startTime) {
+    return { kind: 'slot', startTime: draft.startTime, endTime: draft.endTime || draft.startTime };
+  }
+  return undefined;
+}
+
+export function optionFrom(draft: CardDraft, id: string): Option {
+  const timing = timingFrom(draft);
+  const detail = draft.detail.trim();
+  return {
+    id,
+    source: 'user',
+    title: draft.title.trim() || 'Untitled',
+    ...(detail ? { detail } : {}),
+    cost: {
+      kind: draft.perNight ? 'per-night' : 'fixed',
+      amount: Math.max(0, Number(draft.amount) || 0),
+    },
+    ...(timing ? { timing } : {}),
+  };
+}
+
+export function CardEditor({
+  draft: initial,
+  kinds,
+  title,
+  submitLabel,
+  onSave,
+  onCancel,
+}: {
+  draft: CardDraft;
+  /** Kinds valid for where this is being attached. */
+  kinds: readonly CardKind[];
+  title: string;
+  submitLabel: string;
+  onSave: (draft: CardDraft) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const set = <K extends keyof CardDraft>(key: K, value: CardDraft[K]) =>
+    setDraft((d) => ({ ...d, [key]: value }));
+
+  const isJourney = JOURNEY_KINDS.includes(draft.kind);
+  const isSlot = SLOT_KINDS.includes(draft.kind);
+  const isNote = draft.kind === 'note';
+
+  return (
+    <div className="overlay" role="dialog" aria-modal="true" aria-label={title}>
+      <form
+        className="dialog"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave(draft);
+        }}
+      >
+        <h2>{title}</h2>
+        <p>Whatever you know is enough. You can fill in the rest later.</p>
+
+        {kinds.length > 1 ? (
+          <div className="field">
+            <label className="label" htmlFor="card-kind">
+              What is it
+            </label>
+            <select
+              id="card-kind"
+              className="select"
+              value={draft.kind}
+              onChange={(e) => {
+                const kind = e.target.value as CardKind;
+                setDraft((d) => ({ ...d, kind, perNight: kind === 'lodging' }));
+              }}
+            >
+              {kinds.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABEL[k]}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        <div className="field">
+          <label className="label" htmlFor="card-title">
+            Name
+          </label>
+          <input
+            id="card-title"
+            value={draft.title}
+            onChange={(e) => set('title', e.target.value)}
+            placeholder={
+              draft.kind === 'lodging'
+                ? 'Hotel Lumière'
+                : isJourney
+                  ? 'KLM 602'
+                  : 'Van Gogh Museum'
+            }
+            autoFocus
+          />
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="card-detail">
+            Details
+          </label>
+          <input
+            id="card-detail"
+            value={draft.detail}
+            onChange={(e) => set('detail', e.target.value)}
+            placeholder={
+              draft.kind === 'lodging' ? 'Le Marais · 8.7 · free cancellation' : 'ORD → AMS · nonstop'
+            }
+          />
+          <div className="field__hint">Anything worth remembering when you compare it later.</div>
+        </div>
+
+        {isNote ? null : (
+          <div className="row">
+            <div className="field">
+              <label className="label" htmlFor="card-amount">
+                Price
+              </label>
+              <input
+                id="card-amount"
+                type="number"
+                min="0"
+                step="1"
+                value={draft.amount}
+                onChange={(e) => set('amount', e.target.value)}
+                placeholder="0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="card-pernight">
+                Charged
+              </label>
+              <select
+                id="card-pernight"
+                className="select"
+                value={draft.perNight ? 'night' : 'once'}
+                onChange={(e) => set('perNight', e.target.value === 'night')}
+              >
+                <option value="once">In total</option>
+                <option value="night">Per night</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {isJourney ? (
+          <>
+            <div className="row">
+              <div className="field">
+                <label className="label" htmlFor="card-depart-date">
+                  Date
+                </label>
+                <input
+                  id="card-depart-date"
+                  type="date"
+                  value={draft.departDate}
+                  onChange={(e) => set('departDate', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="card-depart-time">
+                  Leaves
+                </label>
+                <input
+                  id="card-depart-time"
+                  type="time"
+                  value={draft.departTime}
+                  onChange={(e) => set('departTime', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="card-arrive-time">
+                  Arrives
+                </label>
+                <input
+                  id="card-arrive-time"
+                  type="time"
+                  value={draft.arriveTime}
+                  onChange={(e) => set('arriveTime', e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="row">
+              <div className="field">
+                <label className="label" htmlFor="card-duration">
+                  How long, in minutes
+                </label>
+                <input
+                  id="card-duration"
+                  type="number"
+                  min="0"
+                  value={draft.durationMinutes}
+                  onChange={(e) => set('durationMinutes', e.target.value)}
+                  placeholder="120"
+                />
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="card-overnight">
+                  Lands
+                </label>
+                <select
+                  id="card-overnight"
+                  className="select"
+                  value={draft.overnight ? 'next' : 'same'}
+                  onChange={(e) => set('overnight', e.target.value === 'next')}
+                >
+                  <option value="same">Same day</option>
+                  <option value="next">Next morning</option>
+                </select>
+              </div>
+            </div>
+            <div className="field__hint" style={{ marginTop: '-6px', marginBottom: '4px' }}>
+              Without a date this still sits in your plan, it just will not move anything around it
+              yet.
+            </div>
+          </>
+        ) : null}
+
+        {isSlot ? (
+          <div className="row">
+            <div className="field">
+              <label className="label" htmlFor="card-start">
+                Starts
+              </label>
+              <input
+                id="card-start"
+                type="time"
+                value={draft.startTime}
+                onChange={(e) => set('startTime', e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="card-end">
+                Ends
+              </label>
+              <input
+                id="card-end"
+                type="time"
+                value={draft.endTime}
+                onChange={(e) => set('endTime', e.target.value)}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <div className="actions">
+          <button type="button" className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn--primary" disabled={draft.title.trim() === ''}>
+            {submitLabel}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION } from '@odysseus/domain';
+import { SCHEMA_VERSION, syncConnections } from '@odysseus/domain';
 import type { Trip } from '@odysseus/domain';
 
 export interface NewTripInput {
@@ -20,7 +20,9 @@ export interface NewTripInput {
 export function buildNewTrip(input: NewTripInput): Trip {
   const seen = new Map<string, number>();
 
-  return {
+  // Legs are derived from the stops, so a brand new trip already has somewhere to put the flight
+  // out, the trains between, and the flight home.
+  return syncConnections({
     id: `trip-${input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${input.destinations.length}`,
     name: input.name,
     travelers: input.travelers,
@@ -42,5 +44,5 @@ export function buildNewTrip(input: NewTripInput): Trip {
     }),
     connections: [],
     cards: [],
-  };
+  }).trip;
 }

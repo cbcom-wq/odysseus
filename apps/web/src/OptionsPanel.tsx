@@ -18,12 +18,20 @@ export function OptionsPanel({
   selectedCardId,
   onChooseOption,
   onChangeState,
+  onAddOption,
+  onEditOption,
+  onRemoveOption,
+  onRemoveCard,
 }: {
   trip: Trip;
   schedule: Schedule;
   selectedCardId: string | undefined;
   onChooseOption: (cardId: string, optionId: string) => void;
   onChangeState: (cardId: string, state: PlanningState) => void;
+  onAddOption: (cardId: string) => void;
+  onEditOption: (cardId: string, optionId: string) => void;
+  onRemoveOption: (cardId: string, optionId: string) => void;
+  onRemoveCard: (cardId: string) => void;
 }) {
   const card = trip.cards.find((c) => c.id === selectedCardId);
 
@@ -89,15 +97,43 @@ export function OptionsPanel({
           </p>
         )}
 
+        {ranked.length === 0 ? (
+          <p className="panel__note">
+            Nothing to compare yet. Add what you have found and it will be weighed against the rest
+            of the trip.
+          </p>
+        ) : null}
+
         {ranked.map((entry) => (
           <OptionRow
             key={entry.option.id}
             entry={entry}
             trip={trip}
             schedule={schedule}
+            canEdit={entry.option.source === 'user'}
+            canRemove={card.options.length > 1 || entry.option.source === 'user'}
             onChoose={() => onChooseOption(card.id, entry.option.id)}
+            onEdit={() => onEditOption(card.id, entry.option.id)}
+            onRemove={() => onRemoveOption(card.id, entry.option.id)}
           />
         ))}
+
+        <div className="panel__tools">
+          <button type="button" className="btn" onClick={() => onAddOption(card.id)}>
+            + Add an option you found
+          </button>
+          <button
+            type="button"
+            className="btn btn--quiet"
+            onClick={() => {
+              if (window.confirm(`Remove ${current?.title ?? 'this'} from the trip?`)) {
+                onRemoveCard(card.id);
+              }
+            }}
+          >
+            Remove from trip
+          </button>
+        </div>
       </div>
     </aside>
   );
@@ -107,18 +143,27 @@ function OptionRow({
   entry,
   trip,
   schedule,
+  canEdit,
+  canRemove,
   onChoose,
+  onEdit,
+  onRemove,
 }: {
   entry: RankedOption;
   trip: Trip;
   schedule: Schedule;
+  canEdit: boolean;
+  canRemove: boolean;
   onChoose: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
 }) {
   const { option, impact, isCurrent, warning } = entry;
   const timing = optionTiming(option);
   const moved = new Set(impact.scheduleShift.map((s) => s.segmentId));
 
   return (
+    <div className="opt-wrap">
     <button
       type="button"
       className="opt"
@@ -165,6 +210,24 @@ function OptionRow({
         </span>
       ) : null}
     </button>
+
+      {/* Sibling buttons rather than nested ones: a button inside a button is invalid markup and
+          breaks keyboard navigation. */}
+      {canEdit || canRemove ? (
+        <div className="opt__tools">
+          {canEdit ? (
+            <button type="button" className="link" onClick={onEdit}>
+              Edit
+            </button>
+          ) : null}
+          {canRemove ? (
+            <button type="button" className="link" onClick={onRemove}>
+              Remove
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

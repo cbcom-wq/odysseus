@@ -932,6 +932,178 @@ button {
   background: #1c2c38;
 }
 
+/* ---------- adding things ---------- */
+
+/*
+ * Add affordances stay quiet until you go looking. They sit where the thing would go rather than
+ * in a toolbar, so adding a hotel to Brussels means clicking inside Brussels.
+ */
+.add {
+  background: none;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r);
+  padding: 6px 9px;
+  color: var(--ink-3);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.add:hover {
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--accent);
+  background: #f7fafa;
+}
+
+.add--cell {
+  width: 100%;
+  opacity: 0;
+}
+
+.grid__row:hover .add--cell,
+.add--cell:focus-visible {
+  opacity: 1;
+}
+
+.add--quiet {
+  border-color: transparent;
+  color: #9fb0ac;
+}
+
+.insert {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0;
+}
+
+.seg__tools {
+  display: flex;
+  gap: 2px;
+  margin-left: 10px;
+}
+
+.icon {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.icon:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.icon:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.leg__gap {
+  font-size: 12px;
+  color: #9fb0ac;
+  font-style: italic;
+}
+
+.opt-wrap {
+  position: relative;
+  margin-bottom: 7px;
+}
+
+.opt-wrap .opt {
+  margin-bottom: 0;
+}
+
+.opt__tools {
+  display: flex;
+  gap: 10px;
+  padding: 5px 11px 0;
+}
+
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link:hover {
+  color: var(--accent);
+}
+
+.panel__tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.btn--quiet {
+  border-color: transparent;
+  color: var(--ink-3);
+}
+
+.btn--quiet:hover {
+  border-color: var(--flag);
+  color: var(--flag);
+}
+
+.select {
+  width: 100%;
+  font: inherit;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.rail__item--add {
+  color: #7f97a2;
+}
+
+.notice {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.notice__close {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+.blank {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--ink-2);
+}
+
+.blank p {
+  margin: 0 0 14px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

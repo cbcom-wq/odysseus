@@ -7,3 +7,4 @@ export * from './budget.js';
 export * from './compatibility.js';
 export * from './state.js';
 export * from './evaluate.js';
+export * from './edit.js';
