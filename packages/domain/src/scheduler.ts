@@ -350,13 +350,26 @@ export function schedule(trip: Trip): Schedule {
     nights[i] = force ? force.nights : trip.segments[i]!.duration.ideal;
   }
 
+  // Day offset of each segment's first night, measured from the trip's day 0.
+  const startDayOf: number[] = [];
+  let offset = 0;
+  for (let i = 0; i < count; i++) {
+    offset += transitBefore[i] ?? 0;
+    startDayOf.push(offset);
+    offset += nights[i]!;
+  }
+
   // Anchor the calendar. A pin wins; otherwise the trip's tentative anchorDate; otherwise the trip
   // stays undated and schedules to relative days.
+  //
+  // A pin dates a *segment boundary*, while startDate is the trip's day 0. With an overnight
+  // inbound leg those are different days, so the offset has to come back out — subtracting it here
+  // rather than re-deriving it is what stops the transit night being counted twice.
   let startDate: IsoDate | undefined;
   if (firstPin !== undefined) {
-    let day = toDayNumber(pinned.get(firstPin)!.date);
-    for (let i = firstPin - 1; i >= 0; i--) day -= nights[i]! + (transitBefore[i + 1] ?? 0);
-    startDate = fromDayNumber(day);
+    const pinDay = toDayNumber(pinned.get(firstPin)!.date);
+    const pinOffset = firstPin < count ? startDayOf[firstPin]! : offset;
+    startDate = fromDayNumber(pinDay - pinOffset);
   } else if (trip.anchorDate !== undefined) {
     startDate = trip.anchorDate;
   }

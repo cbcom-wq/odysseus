@@ -92,18 +92,25 @@ function usableHours(trip: Trip, s: Schedule): number {
 
     const depart = toMinutes(timing.departTime);
     const arrive = toMinutes(timing.arriveTime);
-    // Arrival before departure means the leg ran past midnight; it consumes the rest of the day.
-    const end = arrive >= depart ? arrive : dayEnd;
 
-    total -= overlap(depart, end);
+    if (timing.nightsInTransit === 0) {
+      total -= overlap(depart, arrive);
+    } else {
+      // An overnight leg eats the rest of the departure day and the morning it lands on. That
+      // arrival morning is where the difference between a 09:50 and an 11:35 landing actually
+      // lives — without it, two red-eyes score identically and the panel has nothing to say.
+      total -= overlap(depart, dayEnd);
+      total -= overlap(dayStart, arrive);
+    }
 
     // Time on a travel day is only usable if you are somewhere to use it. On the inbound leg the
     // hours before departure are spent at home and in an airport, not at the destination; on the
-    // return leg the hours after landing are spent back home. Counting them was the bug that made
-    // a flight landing at 21:00 look nearly as good as one landing at 11:35.
+    // return leg the hours after landing are spent back home.
     const connection = connectionFor(trip, card);
     if (connection?.fromSegmentId === null) total -= overlap(dayStart, depart);
-    if (connection?.toSegmentId === null) total -= overlap(end, dayEnd);
+    if (connection?.toSegmentId === null) {
+      total -= overlap(timing.nightsInTransit === 0 ? arrive : dayStart, dayEnd);
+    }
   }
 
   return total / 60;
