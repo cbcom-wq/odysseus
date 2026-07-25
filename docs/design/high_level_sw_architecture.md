@@ -1,449 +1,175 @@
-Travel Planner Application Architecture Design Document
-1. Overview
-1.1 Purpose
+# Odysseus — High-Level Software Architecture
 
-The Travel Planner application is a personal travel planning and memory management platform designed around the concept of a digital travel timeline.
+> **Revised 2026-07-25.** The original version of this document specified a Python FastAPI backend
+> with SQLite, packaged as a Windows executable wrapping an embedded browser. That stack has been
+> replaced by TypeScript end-to-end. See
+> [`docs/superpowers/specs/2026-07-25-trip-workspace-design.md`](../superpowers/specs/2026-07-25-trip-workspace-design.md)
+> for the decision and its rationale. The domain model, card system, and milestones below are
+> unchanged.
 
-The application allows users to:
+## 1. Overview
 
-Plan trips using interactive travel event cards
-Organize flights, hotels, activities, reservations, and notes
-Capture travel memories through photos and documents
-Build a collection of completed travel experiences
-Use AI-assisted features for planning and organization
+Odysseus is a personal travel planning and memory platform built around the trip as the primary
+object. It allows users to:
 
-The initial implementation will be a Windows desktop application that runs a local backend server and presents the user interface through a browser-based application.
+- Plan trips using interactive travel cards
+- Compare flights, hotels, transport, and activities by their effect on the whole trip
+- Organize reservations, documents, and notes
+- Capture travel memories through photos and documents
+- Build a collection of completed travel experiences
 
-2. Architectural Goals
-Primary Goals
-Web-Based User Experience
+The first target is a desktop application, with the same interface running unchanged in a browser and
+later on mobile.
 
-The user interface should be developed as a modern web application using React and TypeScript.
+## 2. Architectural Goals
 
-Benefits:
+**Web-based user experience.** The interface is a modern web application in React and TypeScript. The
+same bundle serves the desktop shell, a hosted website, and later a mobile wrapper.
 
-Modern UI development
-Rich animations and interactions
-Future reuse as a hosted website
-Future mobile application compatibility
-Local-First Operation
+**Local-first operation.** The application works with no cloud connectivity. This protects personal
+travel data, works while travelling, and simplifies early development.
 
-The application should operate without requiring cloud connectivity.
+**Portability without redesign.** Desktop, web, and mobile are packaging choices, not architectures.
+Business logic lives in platform-agnostic packages so that adding a target does not mean rewriting
+one.
 
-Benefits:
+**Cloud-ready.** Moving from local files to a hosted API and shared database should be an adapter
+swap, not a redesign.
 
-Works during travel
-Protects personal travel data
-Enables offline access
-Simplifies initial development
-Cloud Migration Ready
+## 3. High-Level Architecture
 
-The architecture should allow future transition from:
+```
++--------------------------------------------------------+
+|                  Electron Shell (desktop)              |
+|                                                        |
+|  +--------------------------------------------------+  |
+|  |            React + TypeScript UI                 |  |
+|  |                  (apps/web)                      |  |
+|  +---------------------+----------------------------+  |
+|                        |                               |
+|  +---------------------v----------------------------+  |
+|  |   domain  ·  providers  ·  persistence           |  |
+|  |   pure TypeScript, platform-agnostic             |  |
+|  +---------------------+----------------------------+  |
+|                        |                               |
+|  +---------------------v----------------------------+  |
+|  |     Repository adapter — JSON files on disk      |  |
+|  +--------------------------------------------------+  |
++--------------------------------------------------------+
 
-Local Application
-        |
-        |
-   Local Database
+The same UI and packages run in a browser, with the repository
+adapter backed by IndexedDB instead of the filesystem.
+```
 
-to:
+There is no local server process and no inter-process protocol. The UI imports the domain packages
+directly, which removes an entire class of startup, port-binding, and process-supervision problems
+the original design would have had to solve.
 
-Mobile/Web Clients
-        |
-        |
- Cloud API
-        |
-        |
- Cloud Database
+## 4. Technology Stack
 
-without major redesign.
+**Language.** TypeScript throughout — UI, domain logic, and shells.
 
-3. High-Level Architecture
-+------------------------------------------------+
-|              Windows Application                |
-|                                                |
-|  +--------------------------------------------+ |
-|  |          Embedded Browser UI               | |
-|  |                                            | |
-|  |       React + TypeScript Application       | |
-|  |                                            | |
-|  +---------------------+----------------------+ |
-|                        |                        |
-|                        | HTTP / WebSocket       |
-|                        |                        |
-|  +---------------------v----------------------+ |
-|  |          Local Backend Server              | |
-|  |                                            | |
-|  |        Python FastAPI Application          | |
-|  |                                            | |
-|  +---------------------+----------------------+ |
-|                        |                        |
-|                        |                        |
-|  +---------------------v----------------------+ |
-|  |             Local Data Layer               | |
-|  |                                            | |
-|  |             SQLite Database                | |
-|  |                                            | |
-|  +--------------------------------------------+ |
-|                                                |
-+------------------------------------------------+
-4. Technology Stack
-Frontend
-React + TypeScript
+**Frontend.** React, Vite, React Router, a state management library, and a mapping framework when the
+map view arrives.
 
-Responsibilities:
+**Domain logic.** Plain TypeScript with no framework or I/O dependencies. This is a deliberate
+constraint: it makes the scheduler testable, allows speculative evaluation of options by running the
+real algorithm on a hypothetical trip, and lets identical logic run in a browser, in Electron, and
+later on a server.
 
-User interface
-Timeline visualization
-Travel cards
-Maps
-Collections
-Photo galleries
+**Persistence.** One readable JSON file per trip on desktop; IndexedDB in the browser. Both sit behind
+a single `Repository` interface. SQLite becomes worthwhile when media and documents make querying
+matter — that is a later adapter, not a redesign.
 
-Libraries:
+**Desktop shell.** Electron, kept thin: window, menu, and filesystem binding. No business logic.
 
-React
-TypeScript
-React Router
-State management (Zustand or Redux Toolkit)
-UI component library
-Mapping framework
-Backend
-Python FastAPI
+### Why not Python
 
-Responsibilities:
+The original design placed FastAPI and SQLite behind an embedded browser. Python remains a better
+language for the OCR and document-parsing work in Phase 3, but as the application's spine it would
+have meant shipping a Python runtime inside the installer, supervising a child process, handling port
+conflicts, and maintaining a second language for logic the UI needs synchronously. The web and mobile
+targets would each have required a hosted server, eliminating the offline browser build.
 
-Application API
-Database operations
-File processing
-AI integration
-Document parsing
-Business logic
+When document parsing arrives, it can be an out-of-process service called on demand — a leaf
+dependency rather than the spine.
 
-Backend provides REST APIs:
+## 5. Application Components
 
-Example:
+```
+packages/
+  domain/        entities, planning-state machine, scheduler,
+                 option evaluation, budget rollup. Zero I/O.
+  providers/     OptionProvider interface + FixtureProvider
+  persistence/   Repository interface + file and IndexedDB adapters
 
-GET /api/trips
+apps/
+  web/           React + Vite — the entire user interface
+  desktop/       Electron shell wrapping apps/web
+```
 
-POST /api/events
+## 6. Core Data Model
 
-POST /api/media/upload
+The trip is the primary object. A trip is an ordered set of **Segments** — stays in one place — joined
+by **Connections**. Both hold **Cards**.
 
-POST /api/import/document
-Database
-SQLite
+A card is a *slot* in the trip ("lodging in Paris"). It owns a planning state and an anchor. An
+**Option** is a *candidate* that could fill it ("Hotel Alpha, $110/night"), owning cost, timing, and
+attributes. Keeping these separate is what allows a decision to be settled while its contents are
+still under comparison.
 
-Initial database engine.
-
-Advantages:
-
-Embedded
-No installation required
-Portable
-Supports offline usage
-
-Future migration:
-
-SQLite
-  |
-  |
-PostgreSQL
-5. Application Components
-5.1 Frontend Application
-
-Directory structure:
-
-frontend/
-
-src/
-
-├── components/
-│
-│   ├── FlightCard.tsx
-│   ├── HotelCard.tsx
-│   ├── ActivityCard.tsx
-│   ├── Timeline.tsx
-│   └── CollectionCard.tsx
-│
-├── pages/
-│
-│   ├── Dashboard.tsx
-│   ├── TripView.tsx
-│   ├── Planner.tsx
-│   └── Collection.tsx
-│
-└── services/
-    └── api.ts
-5.2 Backend Application
-
-Directory structure:
-
-backend/
-
-├── main.py
-
-├── api/
-│
-│   ├── trips.py
-│   ├── events.py
-│   ├── media.py
-│   └── users.py
-│
-├── database/
-│
-│   ├── models.py
-│   └── database.py
-│
-├── services/
-│
-│   ├── document_parser.py
-│   ├── image_processing.py
-│   ├── ai_service.py
-│   └── travel_import.py
-6. Core Data Model
-
-The application is built around the concept of a Travel Event.
-
-Everything in a trip is represented as an event.
-
+```
 Trip
+ ├── Segment ── Card ── Option
+ │                 └─── Option
+ └── Connection ── Card ── Option
+```
 
- |
- +-- Event
-       |
-       +-- Flight Event
-       |
-       +-- Hotel Event
-       |
-       +-- Train Event
-       |
-       +-- Restaurant Event
-       |
-       +-- Activity Event
-       |
-       +-- Memory Event
-Example Event
-{
-  "type": "flight",
-  "title": "Kansas City to Paris",
-  "date": "2026-09-23",
-  "location": "MCI",
-  "destination": "CDG",
-  "status": "confirmed"
-}
-7. Travel Card System
+Card kinds: flight, lodging, transport, activity, dining, note.
+Planning states: `unplanned → exploring → selected → locked → booked`.
 
-Travel cards are UI representations of events.
+Planning state governs **policy** — whether the system may suggest or apply changes. It does not
+govern scheduling; that is driven by the timing of whichever option is currently selected.
 
-Example:
+## 7. Travel Card System
 
-Flight Event
-      |
-      |
-Flight Card
-(Boarding Pass Style)
+Cards are the reusable UI unit, themed by kind — a flight renders as a boarding pass, a hotel as a key
+card, a train as a ticket. The same component travels from discovery through comparison and booking
+into the completed-trip archive. Adding a travel type means adding a card kind, not a new page.
 
+## 8. File and Media Processing
 
-Hotel Event
-      |
-      |
-Hotel Card
-(Key Card Style)
+Later phases support importing boarding passes, confirmations, PDFs, and photos:
 
+```
+Document or image → parse/OCR → extract travel details → create card → render
+```
 
-Train Event
-      |
-      |
-Ticket Card
+## 9. AI Integration
 
-Benefits:
+AI is a service layer that enhances structured travel data rather than replacing it. Two uses:
+planning suggestions grounded in the actual trip model, and turning confirmation documents into
+structured cards. AI-sourced options enter through the same `OptionProvider` interface as any other
+source.
 
-Easy addition of new travel types
-Consistent UI
-Collectible experience
-8. File and Media Processing
+## 10. Packaging
 
-The application supports importing:
+Electron produces the desktop installer. The browser build is the same `apps/web` bundle deployed as
+a static site. A mobile target reuses both the UI and the domain packages.
 
-Boarding passes
-Hotel confirmations
-PDFs
-Images
-Screenshots
-Photos
+## 11. Future Expansion
 
-Processing pipeline:
+Cloud sync arrives as a third `Repository` adapter speaking to a hosted API, with PostgreSQL behind
+it. Because the domain packages have no I/O, they are unchanged by that move.
 
-Document/Image
+## 12. Development Milestones
 
-      |
-      v
+**Phase 1 — Foundation.** Domain packages, trip model, persistence, application shell.
 
-OCR / Parser
+**Phase 2 — Trip Workspace.** Structure and Day views, cards, option comparison, budget. *This is the
+current focus; see the slice 1 spec.*
 
-      |
-      v
+**Phase 3 — Import and Automation.** Document uploads, OCR, confirmation parsing, automatic card
+creation.
 
-Extract Travel Information
-
-      |
-      v
-
-Create Travel Event
-
-      |
-      v
-
-Generate Card
-9. AI Integration
-
-AI functionality will be implemented as a service layer.
-
-AI should enhance structured travel data rather than replace it.
-
-Examples:
-
-Trip Planning
-
-Input:
-
-Trip:
-Florence
-3 days
-Food + history focus
-
-Output:
-
-Suggested itinerary
-Recommended activities
-Restaurant ideas
-Document Understanding
-
-Input:
-
-Hotel confirmation PDF
-
-Output:
-
-Hotel Event
-Check-in
-Check-out
-Address
-Reservation number
-10. Desktop Packaging
-
-The application will be distributed as:
-
-TravelPlanner.exe
-
-The executable will:
-
-Start local backend server
-Launch embedded browser window
-Load React application
-Connect UI to backend API
-
-Startup flow:
-
-User launches application
-
-        |
-        v
-
-Start FastAPI Server
-
-        |
-        v
-
-Open Embedded Browser
-
-        |
-        v
-
-Load React Application
-
-        |
-        v
-
-Application Ready
-11. Future Expansion
-Mobile Application
-
-The same backend API can support:
-
-React Native Mobile App
-
-        |
-        |
-
-FastAPI Backend
-
-        |
-        |
-
-Database
-Cloud Synchronization
-
-Future architecture:
-
-Desktop App
-      |
-Mobile App
-      |
-Web App
-
-      |
-      v
-
-Cloud API
-
-      |
-      v
-
-PostgreSQL Database
-12. Initial Development Milestones
-Phase 1: Foundation
-
-Features:
-
-Windows application shell
-Local backend server
-React interface
-SQLite database
-Trip creation
-Phase 2: Travel Timeline
-
-Features:
-
-Event creation
-Timeline display
-Flight cards
-Hotel cards
-Activity cards
-Phase 3: Import and Automation
-
-Features:
-
-Document uploads
-OCR processing
-Confirmation parsing
-Automatic event creation
-Phase 4: Travel Memories
-
-Features:
-
-Photo attachments
-Completed trip tracking
-Collections
-Achievement badges
-Summary
-
-The recommended architecture is a local-first web application packaged as a Windows desktop application.
-
-The design separates:
-
-React frontend for user experience
-FastAPI backend for intelligence and processing
-SQLite database for local persistence
-
-This architecture provides a fast development path while preserving the ability to evolve into a full cloud-based travel platform with mobile applications and AI-powered travel assistance.
+**Phase 4 — Travel Memories.** Photo attachments, completed trip tracking, Collections.
