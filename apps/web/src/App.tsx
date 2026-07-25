@@ -1,3 +1,4 @@
+import { PRODUCT_NAME, SURFACE_NAME } from '@odysseus/brand';
 import type { Card, CardAnchor, CardKind, PlanningState, Trip } from '@odysseus/domain';
 import {
   addCard,
@@ -217,8 +218,8 @@ function Workspace({
     <div className="app">
       <nav className="rail">
         <div className="rail__brand">
-          <strong>Odysseus</strong>
-          <span>Workspace</span>
+          <strong>{PRODUCT_NAME}</strong>
+          <span>{SURFACE_NAME}</span>
         </div>
 
         <div className="rail__group">Plan</div>

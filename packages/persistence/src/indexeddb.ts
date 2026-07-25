@@ -10,7 +10,6 @@ import { UnreadableTripError, readTrip } from './repository.js';
  * what lets the file adapter and this one share their migration code.
  */
 
-const DB_NAME = 'odysseus';
 const DB_VERSION = 1;
 const STORE = 'trips';
 
@@ -30,11 +29,19 @@ function promisify<T>(request: IDBRequest<T>): Promise<T> {
 export class IndexedDbRepository implements Repository {
   private db: Promise<IDBDatabase> | undefined;
 
-  constructor(private readonly factory: IDBFactory = indexedDB) {}
+  /**
+   * The database name is passed in rather than hardcoded. Storage should not know what the product
+   * is called — that is the app's business, and keeping the two apart is what lets the product be
+   * renamed without the saved trips going missing.
+   */
+  constructor(
+    private readonly databaseName: string,
+    private readonly factory: IDBFactory = indexedDB,
+  ) {}
 
   private open(): Promise<IDBDatabase> {
     this.db ??= new Promise((resolve, reject) => {
-      const request = this.factory.open(DB_NAME, DB_VERSION);
+      const request = this.factory.open(this.databaseName, DB_VERSION);
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains(STORE)) {
           request.result.createObjectStore(STORE, { keyPath: 'id' });
@@ -101,13 +108,7 @@ export class IndexedDbRepository implements Repository {
   }
 }
 
-/**
- * The repository the browser build should use.
- *
- * Private browsing and locked-down storage settings make IndexedDB throw on open. Falling back to
- * memory keeps the app usable for the session; the caller is told so it can warn that nothing will
- * be kept, which is far better than an app that refuses to start.
- */
-export function browserRepository(): Repository {
-  return new IndexedDbRepository();
+/** The repository the browser build should use, under the caller's storage namespace. */
+export function browserRepository(databaseName: string): Repository {
+  return new IndexedDbRepository(databaseName);
 }

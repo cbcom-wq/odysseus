@@ -115,7 +115,7 @@ describe('IndexedDbRepository', () => {
     factory = new IDBFactory();
   });
 
-  behavesLikeARepositoryWith(() => new IndexedDbRepository(factory));
+  behavesLikeARepositoryWith(() => new IndexedDbRepository('odysseus-test', factory));
 
   function behavesLikeARepositoryWith(make: () => Repository) {
     it('round-trips a trip', async () => {
@@ -141,7 +141,7 @@ describe('IndexedDbRepository', () => {
 
       // Write a broken record straight past the repository, as a bad migration might leave behind.
       await new Promise<void>((resolve, reject) => {
-        const open = factory.open('odysseus', 1);
+        const open = factory.open('odysseus-test', 1);
         open.onsuccess = () => {
           const tx = open.result.transaction('trips', 'readwrite');
           tx.objectStore('trips').put({ id: 'broken', updatedAt: '2026-01-01T00:00:00.000Z', trip: { nope: true } });

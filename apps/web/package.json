@@ -14,7 +14,8 @@
     "@odysseus/providers": "0.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "@odysseus/persistence": "0.1.0"
+    "@odysseus/persistence": "0.1.0",
+    "@odysseus/brand": "0.1.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.2",

@@ -26,10 +26,17 @@ packages/
                  option evaluation, budget rollup. Zero I/O.
   providers/     OptionProvider interface + FixtureProvider
   persistence/   Repository interface + file and IndexedDB adapters
+  brand/         what the product is called. The only place the name is written.
 apps/
   web/           React + Vite — the entire user interface
   desktop/       Electron shell: window, menu, filesystem. No business logic.
 ```
+
+**Never hardcode the product name.** It is early and may change, so everything user-facing reads
+`PRODUCT_NAME` from `packages/brand`. `STORAGE_NAMESPACE` is a separate constant on purpose:
+storage identity is not branding, and sharing one string would mean a rename pointed the app at an
+empty database with every saved trip apparently gone. The `@odysseus/*` npm scope is internal and
+no user ever sees it.
 
 **`packages/domain` must not import anything framework-shaped or perform I/O.** This is load-bearing,
 not stylistic. It is what makes the scheduler testable and what makes speculative option evaluation

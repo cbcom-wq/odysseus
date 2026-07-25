@@ -50,10 +50,16 @@ Trip Explorer · Collections · documents and OCR.
 | Storage | One readable JSON file per trip; IndexedDB behind the same interface for the browser | Local-first in the honest sense: openable, diffable, backup-able, hand-editable. |
 | Option ranking | Trip-level impact vector, ranked by a weighted sum with visible preset weights | "Optimize the whole trip" is a stated design principle. Per-slot ranking cannot express it. |
 
-### Open question
+### Naming
 
-The mockups are branded **WanderWise**; the repo and `CLAUDE.md` say **Odysseus**. This spec uses
-Odysseus. Settle before UI work begins — it lands in the shell, window title, and package names.
+The product is **Odysseus**. The mockups in `docs/design_concept_images/` carry a placeholder brand
+in their chrome; treat those images as layout references, not as naming.
+
+The name is early and may not survive, so everything user-facing reads from `packages/brand`:
+changing it is a one-line edit. `STORAGE_NAMESPACE` is deliberately a separate constant from
+`PRODUCT_NAME` — storage identity is not branding, and if the two were the same string a rename
+would point the app at an empty database and every saved trip would appear to vanish. The
+`@odysseus/*` npm scope is internal and never surfaces to a user.
 
 ---
 

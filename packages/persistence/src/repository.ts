@@ -56,7 +56,7 @@ export function readTrip(raw: unknown): Trip {
   }
   if (version > CURRENT_SCHEMA_VERSION) {
     throw new UnreadableTripError(
-      `This trip was saved by a newer version of Odysseus (format ${version}). Update to open it.`,
+      `This trip was saved by a newer version of the app (format ${version}). Update to open it.`,
     );
   }
 

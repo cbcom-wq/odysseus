@@ -1,3 +1,4 @@
+import { STORAGE_NAMESPACE } from '@odysseus/brand';
 import type { Trip } from '@odysseus/domain';
 import type { Repository, UnreadableTrip } from '@odysseus/persistence';
 import { MemoryRepository, browserRepository } from '@odysseus/persistence';
@@ -22,7 +23,7 @@ function makeRepository(): { repo: Repository; ephemeral: boolean } {
   // to start is worse than one that admits it cannot remember.
   try {
     if (typeof indexedDB === 'undefined') return { repo: new MemoryRepository(), ephemeral: true };
-    return { repo: browserRepository(), ephemeral: false };
+    return { repo: browserRepository(STORAGE_NAMESPACE), ephemeral: false };
   } catch {
     return { repo: new MemoryRepository(), ephemeral: true };
   }
