@@ -24,6 +24,8 @@ import type { IsoDate, Option, RankingPreset, Trip } from './types.js';
 export interface TripImpact {
   readonly costDelta: number;
   readonly transitTimeDelta: number;
+  /** Nights the whole trip gains or loses. A red-eye and a morning flight differ by a night away. */
+  readonly tripNightsDelta: number;
   /** Waking hours at a destination rather than in transit. Turns a timestamp into a reason. */
   readonly usableHoursDelta: number;
   readonly conflictsIntroduced: readonly Conflict[];
@@ -163,6 +165,7 @@ export function diffTrips(before: Trip, after: Trip): TripImpact {
 
   return {
     costDelta: budgetAfter.total - budgetBefore.total,
+    tripNightsDelta: scheduleAfter.totalNights - scheduleBefore.totalNights,
     transitTimeDelta: transitMinutes(after, scheduleAfter) - transitMinutes(before, scheduleBefore),
     usableHoursDelta: usableHours(after, scheduleAfter) - usableHours(before, scheduleBefore),
     conflictsIntroduced: conflictsAfter.filter((c) => !keysBefore.has(conflictKey(c))),
@@ -255,6 +258,7 @@ export function rankOptions(trip: Trip, cardId: string): RankedOption[] {
 function emptyImpact(): TripImpact {
   return {
     costDelta: 0,
+    tripNightsDelta: 0,
     transitTimeDelta: 0,
     usableHoursDelta: 0,
     conflictsIntroduced: [],

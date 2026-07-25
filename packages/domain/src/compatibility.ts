@@ -145,11 +145,16 @@ function timingClashes(placed: readonly PlacedCard[]): Conflict[] {
         }
 
         if (secondStart < firstEnd) {
+          // Say what is actually wrong. A journey that lands too late is not "running long", it is
+          // one you have not got off yet — and the sentence has to make that obvious without the
+          // reader reconstructing it from two timestamps.
+          const ends = first.option.timing?.kind === 'journey' ? "doesn't get in until" : 'runs until';
+          const starts = second.option.timing?.kind === 'journey' ? 'leaves at' : 'starts at';
           conflicts.push({
             code: 'TIMING_OVERLAP',
             severity: 'warning',
             message:
-              `${label(first)} runs until ${fmt(firstEnd)}, but ${label(second)} starts at ` +
+              `${label(first)} ${ends} ${fmt(firstEnd)}, but ${label(second)} ${starts} ` +
               `${fmt(secondStart)}.`,
             segmentIds: [],
             cardIds: [first.card.id, second.card.id],
