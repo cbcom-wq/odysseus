@@ -1,0 +1,169 @@
+import type { Conflict } from './conflicts.js';
+import { sortConflicts } from './conflicts.js';
+import { toMinutes } from './dates.js';
+import { placeCards } from './layout.js';
+import type { PlacedCard } from './layout.js';
+import type { Schedule } from './scheduler.js';
+import type { Trip } from './types.js';
+
+/**
+ * Compatibility conflicts: two chosen options that cannot both be true.
+ *
+ * This is the family users actually hit while comparing. Capacity conflicts (the trip does not fit
+ * the time available) come from the scheduler; these come from the specific combination of options
+ * currently selected, and they are what makes an alternative *cost* something beyond its price.
+ *
+ * Nothing here mutates or discards. A conflicting option stays selected and stays visible; the user
+ * decides whether the tradeoff is worth it.
+ */
+
+/** Slack allowed between arriving somewhere and departing again, in minutes. */
+const TRANSFER_BUFFER_MINUTES = 90;
+
+function endMinutes(placed: PlacedCard): number | undefined {
+  const t = placed.option.timing;
+  if (!t) return undefined;
+  if (t.kind === 'slot') return toMinutes(t.endTime);
+  if (t.kind === 'journey') return toMinutes(t.arriveTime);
+  return undefined;
+}
+
+function startMinutes(placed: PlacedCard): number | undefined {
+  const t = placed.option.timing;
+  if (!t) return undefined;
+  if (t.kind === 'slot') return toMinutes(t.startTime);
+  if (t.kind === 'journey') return toMinutes(t.departTime);
+  return undefined;
+}
+
+function label(placed: PlacedCard): string {
+  return placed.option.title;
+}
+
+export function detectCompatibilityConflicts(trip: Trip, schedule: Schedule): Conflict[] {
+  const placed = placeCards(trip, schedule);
+  const conflicts: Conflict[] = [];
+
+  conflicts.push(...orphanedCards(placed));
+  conflicts.push(...uncoveredNights(trip, schedule, placed));
+  conflicts.push(...timingClashes(placed));
+
+  return sortConflicts(conflicts);
+}
+
+function orphanedCards(placed: readonly PlacedCard[]): Conflict[] {
+  return placed
+    .filter((p) => p.orphaned)
+    .map((p) => ({
+      code: 'ORPHANED_CARD' as const,
+      severity: 'warning' as const,
+      message: `${label(p)} no longer has a day to sit on — the stay got shorter than the day it was planned for.`,
+      segmentIds: p.card.anchor.kind === 'segment-day' ? [p.card.anchor.segmentId] : [],
+      cardIds: [p.card.id],
+      flexible: {
+        segmentIds: p.card.anchor.kind === 'segment-day' ? [p.card.anchor.segmentId] : [],
+        cardIds: [p.card.id],
+      },
+    }));
+}
+
+function uncoveredNights(
+  trip: Trip,
+  schedule: Schedule,
+  placed: readonly PlacedCard[],
+): Conflict[] {
+  const lodgingNights = new Set<number>();
+  for (const p of placed) {
+    if (p.card.kind === 'lodging') for (const day of p.days) lodgingNights.add(day);
+  }
+
+  const conflicts: Conflict[] = [];
+  for (const segment of schedule.segments) {
+    if (segment.nights === 0) continue;
+    const nights = Array.from({ length: segment.nights }, (_, i) => segment.startDay + i);
+    const uncovered = nights.filter((n) => !lodgingNights.has(n));
+    if (uncovered.length === 0) continue;
+
+    const location = trip.segments.find((s) => s.id === segment.segmentId)?.location.name ?? 'this stop';
+    conflicts.push({
+      code: 'UNCOVERED_NIGHT',
+      severity: 'warning',
+      message:
+        `${uncovered.length} night${uncovered.length === 1 ? '' : 's'} in ${location} ` +
+        `${uncovered.length === 1 ? 'has' : 'have'} nowhere to stay.`,
+      segmentIds: [segment.segmentId],
+      cardIds: [],
+      flexible: { segmentIds: [segment.segmentId], cardIds: [] },
+      detail: { requiredNights: uncovered.length },
+    });
+  }
+  return conflicts;
+}
+
+function timingClashes(placed: readonly PlacedCard[]): Conflict[] {
+  const byDay = new Map<number, PlacedCard[]>();
+  for (const p of placed) {
+    for (const day of p.days) {
+      // A multi-night stay has no time-of-day to clash with; skip it.
+      if (p.option.cost.kind === 'per-night') continue;
+      const existing = byDay.get(day);
+      if (existing) existing.push(p);
+      else byDay.set(day, [p]);
+    }
+  }
+
+  const conflicts: Conflict[] = [];
+  for (const [, sameDay] of [...byDay.entries()].sort((a, b) => a[0] - b[0])) {
+    const timed = sameDay
+      .filter((p) => startMinutes(p) !== undefined && endMinutes(p) !== undefined)
+      .sort((a, b) => startMinutes(a)! - startMinutes(b)! || a.card.id.localeCompare(b.card.id));
+
+    for (let i = 0; i < timed.length; i++) {
+      for (let j = i + 1; j < timed.length; j++) {
+        const first = timed[i]!;
+        const second = timed[j]!;
+        const firstEnd = endMinutes(first)!;
+        const secondStart = startMinutes(second)!;
+
+        const bothJourneys =
+          first.option.timing?.kind === 'journey' && second.option.timing?.kind === 'journey';
+
+        if (bothJourneys) {
+          if (secondStart < firstEnd + TRANSFER_BUFFER_MINUTES) {
+            conflicts.push({
+              code: 'IMPOSSIBLE_TRANSFER',
+              severity: 'blocking',
+              message:
+                `${label(first)} arrives at ${fmt(firstEnd)} and ${label(second)} leaves at ` +
+                `${fmt(secondStart)} — not enough time to make the connection.`,
+              segmentIds: [],
+              cardIds: [first.card.id, second.card.id],
+              flexible: { segmentIds: [], cardIds: [first.card.id, second.card.id] },
+            });
+          }
+          continue;
+        }
+
+        if (secondStart < firstEnd) {
+          conflicts.push({
+            code: 'TIMING_OVERLAP',
+            severity: 'warning',
+            message:
+              `${label(first)} runs until ${fmt(firstEnd)}, but ${label(second)} starts at ` +
+              `${fmt(secondStart)}.`,
+            segmentIds: [],
+            cardIds: [first.card.id, second.card.id],
+            flexible: { segmentIds: [], cardIds: [first.card.id, second.card.id] },
+          });
+        }
+      }
+    }
+  }
+  return conflicts;
+}
+
+function fmt(minutes: number): string {
+  const h = String(Math.floor(minutes / 60)).padStart(2, '0');
+  const m = String(minutes % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}
