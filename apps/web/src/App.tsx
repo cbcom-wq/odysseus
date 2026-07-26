@@ -26,9 +26,12 @@ import { CardEditor, draftFromOption, emptyDraft, optionFrom } from './CardEdito
 import { CreateTripDialog } from './CreateTripDialog.js';
 import { DayView } from './DayView.js';
 import { OptionsPanel } from './OptionsPanel.js';
+import { PasteImportBox } from './PasteImportBox.js';
 import { SaveStatus } from './SaveStatus.js';
+import { SettingsDialog } from './SettingsDialog.js';
 import { StructureView } from './StructureView.js';
 import { dateRange, money, tripSubtitle } from './format.js';
+import { useSettingsStore } from './useSettingsStore.js';
 import { useTripStore } from './useTripStore.js';
 
 type View = 'structure' | 'days';
@@ -43,6 +46,11 @@ type Editor =
 export function App() {
   const store = useTripStore();
   const [activeId, setActiveId] = useState<string | undefined>();
+
+  // Settings belong up here rather than in the workspace: the workspace is remounted whenever you
+  // switch trips, and an API key is not a per-trip thing.
+  const settingsStore = useSettingsStore();
+  const [showSettings, setShowSettings] = useState(false);
 
   // Settle on a trip once they have loaded, and again if the open one is deleted.
   useEffect(() => {
@@ -64,17 +72,40 @@ export function App() {
     );
   }
 
-  return <Workspace key={trip.id} store={store} trip={trip} onOpenTrip={setActiveId} />;
+  return (
+    <>
+      <Workspace
+        key={trip.id}
+        store={store}
+        trip={trip}
+        onOpenTrip={setActiveId}
+        apiKey={settingsStore.settings.anthropicApiKey}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+      {showSettings ? (
+        <SettingsDialog
+          settings={settingsStore.settings}
+          persistent={settingsStore.persistent}
+          onSave={settingsStore.update}
+          onClose={() => setShowSettings(false)}
+        />
+      ) : null}
+    </>
+  );
 }
 
 function Workspace({
   store,
   trip,
   onOpenTrip,
+  apiKey,
+  onOpenSettings,
 }: {
   store: Store;
   trip: Trip;
   onOpenTrip: (id: string) => void;
+  apiKey: string | undefined;
+  onOpenSettings: () => void;
 }) {
   const { trips, saveTrip: update, deleteTrip } = store;
 
@@ -83,6 +114,24 @@ function Workspace({
   const [creating, setCreating] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  /**
+   * Fields a paste has filled in, and a counter to remount the form when they arrive.
+   *
+   * The editor holds its own draft in local state, so handing it new initial values only takes
+   * effect on a fresh mount — the same reason `Workspace` itself is keyed by trip id above.
+   */
+  const [pasted, setPasted] = useState<Partial<CardDraft> | null>(null);
+  const [draftVersion, setDraftVersion] = useState(0);
+  const [reading, setReading] = useState(false);
+
+  /** Opening a different editor starts a different card. Nothing from the last one carries over. */
+  const openEditor = (next: Editor | null) => {
+    setEditor(next);
+    setPasted(null);
+    setReading(false);
+    setDraftVersion((n) => n + 1);
+  };
 
   /** Apply an edit that may invalidate cards, and say so rather than letting them vanish. */
   const applyEdit = (result: { trip: Trip; removedCardIds: readonly string[] }, why: string) => {
@@ -168,7 +217,7 @@ function Workspace({
     } else {
       update(updateOption(trip, editor.cardId, optionFrom(draft, editor.optionId)));
     }
-    setEditor(null);
+    openEditor(null);
   };
 
   const editorProps = () => {
@@ -254,6 +303,11 @@ function Workspace({
         ))}
         <button type="button" className="rail__item rail__item--add" onClick={() => setCreating(true)}>
           + Start a trip
+        </button>
+
+        <div className="rail__group">This app</div>
+        <button type="button" className="rail__item" onClick={onOpenSettings}>
+          Settings
         </button>
 
         <div className="rail__group">Later</div>
@@ -417,7 +471,7 @@ function Workspace({
               conflictedCardIds={conflictedCardIds}
               onSelectCard={setSelectedCardId}
               onAdd={(anchor) =>
-                setEditor({ mode: 'new-card', anchor, kinds: kindsForAnchor(anchor.kind) })
+                openEditor({ mode: 'new-card', anchor, kinds: kindsForAnchor(anchor.kind) })
               }
             />
           ) : (
@@ -431,7 +485,7 @@ function Workspace({
               conflictedSegmentIds={conflictedSegmentIds}
               onSelectCard={setSelectedCardId}
               onChangeDuration={changeDuration}
-              onAdd={(anchor, kinds) => setEditor({ mode: 'new-card', anchor, kinds })}
+              onAdd={(anchor, kinds) => openEditor({ mode: 'new-card', anchor, kinds })}
               onAddStop={(name, at) => applyEdit(addSegment(trip, name, at), 'Added a stop.')}
               onRemoveStop={(id) => applyEdit(removeSegment(trip, id), 'Removed a stop.')}
               onMoveStop={(id, delta) =>
@@ -448,8 +502,8 @@ function Workspace({
         selectedCardId={selectedCardId}
         onChooseOption={chooseOption}
         onChangeState={changeState}
-        onAddOption={(cardId) => setEditor({ mode: 'new-option', cardId })}
-        onEditOption={(cardId, optionId) => setEditor({ mode: 'edit-option', cardId, optionId })}
+        onAddOption={(cardId) => openEditor({ mode: 'new-option', cardId })}
+        onEditOption={(cardId, optionId) => openEditor({ mode: 'edit-option', cardId, optionId })}
         onRemoveOption={(cardId, optionId) => update(removeOption(trip, cardId, optionId))}
         onRemoveCard={(cardId) => {
           update(removeCard(trip, cardId));
@@ -463,12 +517,30 @@ function Workspace({
 
       {editing ? (
         <CardEditor
-          draft={editing.draft}
+          key={draftVersion}
+          draft={pasted ? { ...editing.draft, ...pasted } : editing.draft}
           kinds={editing.kinds}
           title={editing.title}
           submitLabel={editing.submitLabel}
+          topSlot={
+            // Only when adding something. Re-editing an option you already saved is a correction,
+            // and pasting a different listing over it would be a new option, not an edit.
+            editor?.mode !== 'edit-option' ? (
+              <PasteImportBox
+                allowedKinds={editing.kinds}
+                apiKey={apiKey}
+                onOpenSettings={onOpenSettings}
+                onBusyChange={setReading}
+                onExtracted={(patch) => {
+                  setPasted((current) => ({ ...current, ...patch }));
+                  setDraftVersion((n) => n + 1);
+                }}
+              />
+            ) : null
+          }
+          busy={reading}
           onSave={saveFromEditor}
-          onCancel={() => setEditor(null)}
+          onCancel={() => openEditor(null)}
         />
       ) : null}
     </div>

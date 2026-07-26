@@ -91,6 +91,14 @@ export interface Option {
   readonly detail?: string;
   readonly cost: OptionCost;
   readonly timing?: OptionTiming;
+  /**
+   * Where this was found, when it came from somewhere with an address.
+   *
+   * A reference for the traveller to go back to, and nothing more — it is never re-fetched. An
+   * option is a snapshot of what a listing said when it was captured, and quietly re-reading the
+   * page later would mean prices and times changing underneath a decision that was already made.
+   */
+  readonly sourceUrl?: string;
   readonly attributes?: Readonly<Record<string, string | number | boolean>>;
 }
 

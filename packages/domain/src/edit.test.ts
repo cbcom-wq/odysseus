@@ -7,6 +7,7 @@ import {
   removeOption,
   removeSegment,
   syncConnections,
+  updateOption,
 } from './edit.js';
 import { card, connection, floatingStayOption, journeyOption, segment, trip } from './test-support.js';
 
@@ -193,5 +194,20 @@ describe('options you add yourself', () => {
     const after = removeOption(base, 'c-hotel', 'listed');
     expect(after.cards[0]!.selectedOptionId).toBeUndefined();
     expect(after.cards[0]!.state).toBe('unplanned');
+  });
+
+  it('keep the link they were found at', () => {
+    // Somewhere to go back to. It is carried, never followed — see the note on Option.sourceUrl.
+    const found = {
+      ...floatingStayOption('found', { perNight: 120 }),
+      source: 'user' as const,
+      sourceUrl: 'https://example.com/hotels/bravo',
+    };
+
+    const added = addOption(base, 'c-hotel', found);
+    expect(added.cards[0]!.options[1]!.sourceUrl).toBe('https://example.com/hotels/bravo');
+
+    const edited = updateOption(added, 'c-hotel', { ...found, title: 'Hotel Bravo, renamed' });
+    expect(edited.cards[0]!.options[1]!.sourceUrl).toBe('https://example.com/hotels/bravo');
   });
 });

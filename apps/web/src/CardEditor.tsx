@@ -1,4 +1,6 @@
 import type { Card, CardKind, Option, OptionTiming } from '@odysseus/domain';
+import type { DraftPatch } from '@odysseus/extraction';
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 
 /**
@@ -23,7 +25,16 @@ export interface CardDraft {
   readonly durationMinutes: string;
   readonly startTime: string;
   readonly endTime: string;
+  readonly sourceUrl: string;
 }
+
+/**
+ * Smart paste fills this form in, and it lives in another package that cannot import this one.
+ * The two shapes therefore have to agree by hand — so make the compiler check it. Let a field's
+ * type drift apart from its counterpart and this stops building.
+ */
+type Assert<T extends true> = T;
+type _PatchFitsDraft = Assert<Partial<DraftPatch> extends Partial<CardDraft> ? true : false>;
 
 const JOURNEY_KINDS: readonly CardKind[] = ['flight', 'transport'];
 const SLOT_KINDS: readonly CardKind[] = ['activity', 'dining'];
@@ -51,6 +62,7 @@ export function emptyDraft(kind: CardKind): CardDraft {
     durationMinutes: '',
     startTime: '',
     endTime: '',
+    sourceUrl: '',
   };
 }
 
@@ -61,6 +73,7 @@ export function draftFromOption(card: Card, option: Option): CardDraft {
     ...base,
     title: option.title,
     detail: option.detail ?? '',
+    sourceUrl: option.sourceUrl ?? '',
     amount: String(option.cost.amount),
     perNight: option.cost.kind === 'per-night',
     ...(timing?.kind === 'journey'
@@ -99,11 +112,13 @@ function timingFrom(draft: CardDraft): OptionTiming | undefined {
 export function optionFrom(draft: CardDraft, id: string): Option {
   const timing = timingFrom(draft);
   const detail = draft.detail.trim();
+  const sourceUrl = draft.sourceUrl.trim();
   return {
     id,
     source: 'user',
     title: draft.title.trim() || 'Untitled',
     ...(detail ? { detail } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
     cost: {
       kind: draft.perNight ? 'per-night' : 'fixed',
       amount: Math.max(0, Number(draft.amount) || 0),
@@ -117,6 +132,8 @@ export function CardEditor({
   kinds,
   title,
   submitLabel,
+  topSlot,
+  busy,
   onSave,
   onCancel,
 }: {
@@ -125,6 +142,13 @@ export function CardEditor({
   kinds: readonly CardKind[];
   title: string;
   submitLabel: string;
+  /**
+   * Rendered above the first field. Anything that fills the form in for you belongs here — this
+   * component stays a form and knows nothing about where a draft came from.
+   */
+  topSlot?: ReactNode;
+  /** Something is about to rewrite these fields, so hold them still until it does. */
+  busy?: boolean;
   onSave: (draft: CardDraft) => void;
   onCancel: () => void;
 }) {
@@ -148,7 +172,15 @@ export function CardEditor({
         <h2>{title}</h2>
         <p>Whatever you know is enough. You can fill in the rest later.</p>
 
-        {kinds.length > 1 ? (
+        {topSlot}
+
+        {/*
+          Frozen while a paste is being read, because the fields are about to be rewritten with what
+          comes back. Letting someone type into a form that is seconds from being overwritten is a
+          good way to lose what they typed. Cancel and the paste box above stay live throughout.
+        */}
+        <fieldset className="formfields" disabled={busy === true}>
+          {kinds.length > 1 ? (
           <div className="field">
             <label className="label" htmlFor="card-kind">
               What is it
@@ -203,6 +235,22 @@ export function CardEditor({
             }
           />
           <div className="field__hint">Anything worth remembering when you compare it later.</div>
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="card-source">
+            Where you found it
+          </label>
+          <input
+            id="card-source"
+            type="url"
+            value={draft.sourceUrl}
+            onChange={(e) => set('sourceUrl', e.target.value)}
+            placeholder="https://"
+          />
+          <div className="field__hint">
+            Optional. A link to go back to — the price here will not change on its own.
+          </div>
         </div>
 
         {isNote ? null : (
@@ -337,12 +385,17 @@ export function CardEditor({
             </div>
           </div>
         ) : null}
+        </fieldset>
 
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" className="btn btn--primary" disabled={draft.title.trim() === ''}>
+          <button
+            type="submit"
+            className="btn btn--primary"
+            disabled={draft.title.trim() === '' || busy === true}
+          >
             {submitLabel}
           </button>
         </div>
