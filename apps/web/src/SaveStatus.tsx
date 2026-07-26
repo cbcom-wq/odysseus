@@ -5,15 +5,22 @@ import type { SaveState } from './useTripStore.js';
  *
  * There is no save button, so this is the only thing telling someone their afternoon of planning
  * still exists. It stays out of the way when everything is fine and gets loud only when it is not.
+ *
+ * On the desktop it also says where the files are, because a local-first app that will not tell you
+ * where your data lives is only half keeping the promise.
  */
 export function SaveStatus({
   state,
   savedAt,
   ephemeral,
+  location,
+  onReveal,
 }: {
   state: SaveState;
   savedAt: string | undefined;
   ephemeral: boolean;
+  location?: string | undefined;
+  onReveal?: (() => void) | undefined;
 }) {
   if (ephemeral) {
     return (
@@ -23,11 +30,28 @@ export function SaveStatus({
     );
   }
 
-  if (state === 'error') return <span className="save save--warn">Not saved. Changes are only in this tab.</span>;
-  if (state === 'loading') return <span className="save">Opening…</span>;
-  if (state === 'saving') return <span className="save">Saving…</span>;
+  const status =
+    state === 'error'
+      ? 'Not saved. Changes are only in this window.'
+      : state === 'loading'
+        ? 'Opening…'
+        : state === 'saving'
+          ? 'Saving…'
+          : `Saved ${savedAt ? relative(savedAt) : 'on this device'}`;
 
-  return <span className="save">Saved {savedAt ? relative(savedAt) : 'on this device'}</span>;
+  return (
+    <span className="save">
+      <span className={state === 'error' ? 'save--warn' : undefined}>{status}</span>
+      {location && onReveal ? (
+        <>
+          {' '}
+          <button type="button" className="link link--rail" onClick={onReveal} title={location}>
+            Show files
+          </button>
+        </>
+      ) : null}
+    </span>
+  );
 }
 
 function relative(iso: string): string {

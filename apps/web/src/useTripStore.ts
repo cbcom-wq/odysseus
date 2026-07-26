@@ -1,7 +1,7 @@
 import { STORAGE_NAMESPACE } from '@odysseus/brand';
 import type { Trip } from '@odysseus/domain';
 import type { Repository, UnreadableTrip } from '@odysseus/persistence';
-import { MemoryRepository, browserRepository } from '@odysseus/persistence';
+import { DesktopRepository, MemoryRepository, browserRepository, findDesktopBridge } from '@odysseus/persistence';
 import { buildFixtureTrip } from '@odysseus/providers';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -17,7 +17,27 @@ export type SaveState = 'loading' | 'clean' | 'saving' | 'saved' | 'error';
 
 const DEBOUNCE_MS = 400;
 
-function makeRepository(): { repo: Repository; ephemeral: boolean } {
+export interface StorageChoice {
+  readonly repo: Repository;
+  readonly ephemeral: boolean;
+  /** Where trips are kept, when that is somewhere a person could go and look. */
+  readonly location?: string;
+  readonly reveal?: () => void;
+}
+
+function makeRepository(): StorageChoice {
+  // Inside the desktop shell, trips are files rather than browser storage. The interface is
+  // otherwise identical: same format, same migrations, different door.
+  const bridge = findDesktopBridge();
+  if (bridge) {
+    return {
+      repo: new DesktopRepository(bridge),
+      ephemeral: false,
+      location: bridge.tripsDirectory,
+      reveal: () => void bridge.reveal(),
+    };
+  }
+
   // Private browsing and locked-down storage settings make IndexedDB throw. Running in memory keeps
   // the app usable for the session; the caller warns that nothing will be kept. An app that refuses
   // to start is worse than one that admits it cannot remember.
@@ -30,7 +50,7 @@ function makeRepository(): { repo: Repository; ephemeral: boolean } {
 }
 
 export function useTripStore() {
-  const [{ repo, ephemeral }] = useState(makeRepository);
+  const [{ repo, ephemeral, location, reveal }] = useState(makeRepository);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [saveState, setSaveState] = useState<SaveState>('loading');
   const [savedAt, setSavedAt] = useState<string | undefined>();
@@ -142,5 +162,7 @@ export function useTripStore() {
     dismissProblems,
     error,
     ephemeral,
+    location,
+    reveal,
   };
 }

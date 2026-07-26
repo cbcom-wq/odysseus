@@ -1151,3 +1151,11 @@ button {
     grid-template-columns: 168px minmax(0, 1fr) 320px;
   }
 }
+
+.link--rail {
+  color: #7f97a2;
+}
+
+.link--rail:hover {
+  color: #cfdbe0;
+}

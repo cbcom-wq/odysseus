@@ -16,6 +16,10 @@ function brandTitle() {
 }
 
 export default defineConfig({
+  // Relative asset paths, so the same build works both served over HTTP and loaded from disk by the
+  // desktop shell. With the default absolute paths, `file://` resolves /assets against the
+  // filesystem root and the window comes up blank with nothing in the log to explain it.
+  base: './',
   plugins: [react(), brandTitle()],
   server: { port: 5173 },
 });

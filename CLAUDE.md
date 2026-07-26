@@ -32,6 +32,13 @@ apps/
   desktop/       Electron shell: window, menu, filesystem. No business logic.
 ```
 
+The desktop shell exposes exactly four calls to the interface (load, save, remove, reveal), defined
+once in `packages/persistence/src/bridge.ts` so the main process, preload, and renderer cannot drift
+apart. The renderer runs sandboxed with no Node access. Two things there are easy to get wrong and
+have already bitten once each: `apps/web` must build with `base: './'` or the shell loads a blank
+window from `file://`, and `userData` must be pinned to `STORAGE_NAMESPACE` because Electron
+otherwise derives it from the app name.
+
 **Never hardcode the product name.** It is early and may change, so everything user-facing reads
 `PRODUCT_NAME` from `packages/brand`. `STORAGE_NAMESPACE` is a separate constant on purpose:
 storage identity is not branding, and sharing one string would mean a rename pointed the app at an

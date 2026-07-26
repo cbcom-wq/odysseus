@@ -1,0 +1,22 @@
+{
+  "name": "@odysseus/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop shell for the Odysseus workspace",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build:shell": "node build.mjs",
+    "build": "npm run build:shell && npm run build --workspace @odysseus/web",
+    "dev": "npm run build:shell && node dev.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@odysseus/brand": "0.1.0",
+    "@odysseus/persistence": "0.1.0"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "esbuild": "^0.25.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // DOM is here only so the shared persistence package (which contains the browser IndexedDB
+    // adapter alongside the node one) typechecks when imported. The shell itself uses none of it.
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["src", "build.mjs"]
+}

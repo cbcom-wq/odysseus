@@ -268,7 +268,13 @@ function Workspace({
         </button>
 
         <div className="rail__foot">
-          <SaveStatus state={store.saveState} savedAt={store.savedAt} ephemeral={store.ephemeral} />
+          <SaveStatus
+            state={store.saveState}
+            savedAt={store.savedAt}
+            ephemeral={store.ephemeral}
+            location={store.location}
+            onReveal={store.reveal}
+          />
         </div>
       </nav>
 

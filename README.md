@@ -9,6 +9,8 @@ the canal cruise you already picked.
 
 ## Running it
 
+In a browser:
+
 ```
 npm install
 npm run dev --workspace @odysseus/web
@@ -16,6 +18,16 @@ npm run dev --workspace @odysseus/web
 
 Then open http://localhost:5173. The first run seeds a demo trip; everything after that is saved as
 you work.
+
+As a desktop app:
+
+```
+npm start --workspace @odysseus/desktop
+```
+
+Same interface, but trips are kept as readable JSON files, one per trip, under your user data
+folder. **File → Show trips folder** opens it. To develop against the shell with hot reloading, run
+the web dev server above and then `npm run dev --workspace @odysseus/desktop`.
 
 ```
 npm test          # all packages
