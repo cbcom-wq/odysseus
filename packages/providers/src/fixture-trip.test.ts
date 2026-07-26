@@ -103,8 +103,53 @@ describe('a new trip', () => {
     const result = schedule(trip);
 
     expect(result.segments.map((s) => s.segmentId)).toEqual(['tokyo', 'kyoto']);
-    expect(result.totalNights).toBe(6);
     expect(result.startDate).toBeUndefined(); // undated, and that is fine
+  });
+
+  it('honours the length you asked for', () => {
+    // The whole reason the create dialog asks. A trip built for ten to fourteen nights that opens
+    // at six has quietly thrown away the only number the traveller gave it.
+    const cases = [
+      { destinations: ['Lisbon'], nights: { min: 10, max: 12 } },
+      { destinations: ['Tokyo', 'Kyoto'], nights: { min: 7, max: 14 } },
+      { destinations: ['A', 'B', 'C', 'D', 'E'], nights: { min: 7, max: 10 } },
+      { destinations: ['Rome', 'Florence', 'Venice'], nights: { min: 9, max: 9 } },
+    ];
+
+    for (const { destinations, nights } of cases) {
+      const result = schedule(
+        buildNewTrip({ name: 'x', travelers: 2, nights, destinations }),
+      );
+      expect(result.totalNights).toBeGreaterThanOrEqual(nights.min);
+      expect(result.totalNights).toBeLessThanOrEqual(nights.max);
+      expect(result.conflicts).toEqual([]);
+    }
+  });
+
+  it('gives every stop at least a night', () => {
+    const result = schedule(
+      buildNewTrip({
+        name: 'x',
+        travelers: 2,
+        nights: { min: 3, max: 3 },
+        destinations: ['A', 'B', 'C'],
+      }),
+    );
+    expect(result.segments.map((s) => s.nights)).toEqual([1, 1, 1]);
+  });
+
+  it('starts on the date you gave it', () => {
+    const result = schedule(
+      buildNewTrip({
+        name: 'x',
+        travelers: 2,
+        nights: { min: 7, max: 10 },
+        destinations: ['Tokyo', 'Kyoto'],
+        startDate: '2027-03-28',
+      }),
+    );
+    expect(result.startDate).toBe('2027-03-28');
+    expect(result.segments[0]!.startDate).toBe('2027-03-28');
   });
 
   it('does not collide when a destination repeats', () => {

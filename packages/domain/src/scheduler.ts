@@ -339,15 +339,51 @@ export function schedule(trip: Trip): Schedule {
     if (conflict) conflicts.push(conflict);
   }
 
-  // Segments outside any pinned span have nothing pulling on them: give them their ideal.
+  // Segments outside any pinned span have no dates pulling on them, so what shapes them is the
+  // trip's own length. Without this they would each sit at their ideal and the trip would quietly
+  // ignore "I have ten days" — which is the one thing the traveller actually told us.
   const firstPin = pinnedBoundaries[0];
   const lastPin = pinnedBoundaries[pinnedBoundaries.length - 1];
+
+  const free: number[] = [];
+  let committed = sumTransit(transitBefore, 0, count + 1);
+
   for (let i = 0; i < count; i++) {
     const insideSpan =
       firstPin !== undefined && lastPin !== undefined && i >= firstPin && i < lastPin;
-    if (insideSpan) continue;
     const force = forced.get(i);
-    nights[i] = force ? force.nights : trip.segments[i]!.duration.ideal;
+
+    if (insideSpan) {
+      committed += nights[i]!;
+    } else if (force) {
+      nights[i] = force.nights;
+      committed += force.nights;
+    } else {
+      free.push(i);
+    }
+  }
+
+  if (free.length > 0) {
+    const bounds = free.map((i) => trip.segments[i]!.duration);
+    const wanted = bounds.reduce((sum, d) => sum + d.ideal, 0);
+
+    // Aim for what the segments want, but no further outside the trip's stated length than the
+    // free segments can actually stretch or shrink to cover.
+    const target = Math.min(Math.max(committed + wanted, trip.length.min), trip.length.max);
+    const available = target - committed;
+
+    const minSum = bounds.reduce((sum, d) => sum + d.min, 0);
+    const maxSum = bounds.reduce((sum, d) => sum + d.max, 0);
+    const settled = Math.min(Math.max(available, minSum), maxSum);
+
+    const extra = allocate(
+      settled - minSum,
+      bounds.map((d) => Math.max(0, d.ideal - d.min)),
+      bounds.map((d) => d.max - d.min),
+    );
+    free.forEach((segmentIndex, slot) => {
+      nights[segmentIndex] = bounds[slot]!.min + extra[slot]!;
+    });
   }
 
   // Day offset of each segment's first night, measured from the trip's day 0.

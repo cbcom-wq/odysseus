@@ -17,6 +17,21 @@ export interface NewTripInput {
  * decisions get made. Durations start at a generous spread so the scheduler has room to work before
  * the traveller has an opinion.
  */
+/**
+ * A starting duration for each stop, derived from the trip the traveller described.
+ *
+ * A fixed default would fight what they just told us: ten nights across one city should not open at
+ * three, and a week across five stops should not open at fifteen. Splitting the requested length
+ * evenly is a guess, but it is a guess in the right neighbourhood, and every stop stays free to
+ * stretch to the whole trip because early on any of them might.
+ */
+function startingRange(input: NewTripInput): { min: number; ideal: number; max: number } {
+  const stops = Math.max(1, input.destinations.length);
+  const midpoint = (input.nights.min + input.nights.max) / 2;
+  const ideal = Math.max(1, Math.round(midpoint / stops));
+  return { min: 1, ideal, max: Math.max(ideal, input.nights.max) };
+}
+
 export function buildNewTrip(input: NewTripInput): Trip {
   const seen = new Map<string, number>();
 
@@ -39,7 +54,7 @@ export function buildNewTrip(input: NewTripInput): Trip {
       return {
         id: count === 1 ? slug : `${slug}-${count}`,
         location: { name },
-        duration: { min: 1, ideal: 3, max: 7 },
+        duration: startingRange(input),
       };
     }),
     connections: [],

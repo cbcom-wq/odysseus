@@ -20,6 +20,7 @@ export function CreateTripDialog({
   const [destinations, setDestinations] = useState('');
   const [minNights, setMinNights] = useState('7');
   const [maxNights, setMaxNights] = useState('14');
+  const [startDate, setStartDate] = useState('');
 
   const places = destinations
     .split(',')
@@ -40,6 +41,7 @@ export function CreateTripDialog({
           max: Math.max(Number(minNights) || 1, Number(maxNights) || 1),
         },
         destinations: places,
+        ...(startDate ? { startDate } : {}),
       }),
     );
   };
@@ -74,6 +76,22 @@ export function CreateTripDialog({
             placeholder="Tokyo, Hakone, Kyoto"
           />
           <div className="field__hint">Separate places with commas, in the order you would visit them.</div>
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="trip-start">
+            Leaving on
+          </label>
+          <input
+            id="trip-start"
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <div className="field__hint">
+            Optional. Leave it empty and the trip stays on relative days until a flight or a booking
+            fixes it.
+          </div>
         </div>
 
         <div className="row">

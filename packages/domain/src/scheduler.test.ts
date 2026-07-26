@@ -283,6 +283,74 @@ describe('undated trips', () => {
     expect(result.conflicts).toEqual([]);
   });
 
+  it('stretches an undated trip to reach the length you asked for', () => {
+    // Two stops that would idle at 3 nights each, but the traveller said at least 9.
+    const t = trip({
+      length: { min: 9, max: 12 },
+      segments: [
+        segment('a', 'A', { min: 1, ideal: 3, max: 7 }),
+        segment('b', 'B', { min: 1, ideal: 3, max: 7 }),
+      ],
+    });
+    const result = schedule(t);
+
+    expect(result.totalNights).toBe(9);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it('compresses an undated trip to fit the length you asked for', () => {
+    const t = trip({
+      length: { min: 4, max: 6 },
+      segments: [
+        segment('a', 'A', { min: 1, ideal: 4, max: 7 }),
+        segment('b', 'B', { min: 1, ideal: 4, max: 7 }),
+        segment('c', 'C', { min: 1, ideal: 4, max: 7 }),
+      ],
+    });
+    const result = schedule(t);
+
+    expect(result.totalNights).toBe(6);
+    expect(result.segments.every((s) => s.nights >= 1)).toBe(true);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it('leaves a trip alone when its ideal already lands in range', () => {
+    const t = trip({
+      length: { min: 7, max: 14 },
+      segments: [
+        segment('a', 'A', { min: 1, ideal: 3, max: 7 }),
+        segment('b', 'B', { min: 1, ideal: 3, max: 7 }),
+        segment('c', 'C', { min: 1, ideal: 3, max: 7 }),
+      ],
+    });
+    expect(nightsBySegment(t)).toEqual({ a: 3, b: 3, c: 3 });
+  });
+
+  it('fills the unpinned remainder around a leg that is already chosen', () => {
+    // Amsterdam is fixed by the flights either side; Brussels absorbs the rest of the budget.
+    const t = trip({
+      length: { min: 8, max: 8 },
+      segments: [
+        segment('ams', 'Amsterdam', { min: 1, ideal: 2, max: 5 }),
+        segment('bru', 'Brussels', { min: 1, ideal: 2, max: 9 }),
+      ],
+      connections: [connection('in', null, 'ams'), connection('ams-bru', 'ams', 'bru')],
+      cards: [
+        card('c-in', 'flight', { kind: 'connection', connectionId: 'in' }, [
+          journeyOption('in', { departDate: '2026-09-01' }),
+        ]),
+        card('c-train', 'transport', { kind: 'connection', connectionId: 'ams-bru' }, [
+          journeyOption('train', { departDate: '2026-09-04' }),
+        ]),
+      ],
+    });
+    const result = schedule(t);
+
+    expect(nightsBySegment(t).ams).toBe(3); // pinned by the two legs
+    expect(result.totalNights).toBe(8); // Brussels takes the remaining 5
+    expect(result.conflicts).toEqual([]);
+  });
+
   it('flags a trip whose resolved length falls outside its target range', () => {
     const t = trip({
       length: { min: 1, max: 3 },
