@@ -47,9 +47,42 @@ export function detectCompatibilityConflicts(trip: Trip, schedule: Schedule): Co
   conflicts.push(...orphanedCards(placed));
   conflicts.push(...uncoveredNights(trip, schedule, placed));
   conflicts.push(...unlinkedStops(trip, placed));
+  conflicts.push(...incompleteLegs(trip, placed));
   conflicts.push(...timingClashes(placed));
 
   return sortConflicts(conflicts);
+}
+
+/**
+ * A leg you know you are taking but nothing about.
+ *
+ * This is the other half of a return fare imported from a listing that only showed the outbound
+ * flight. The card exists, so `MISSING_CONNECTION` has gone quiet — creating the placeholder
+ * silenced the only warning there was, and something has to take its place.
+ *
+ * Derived rather than stored: a journey with no timing is incomplete whether it arrived as a
+ * placeholder or was typed in half-finished. It pins nothing and floats with the schedule, which is
+ * the honest behaviour, but the traveller still needs telling that the schedule is guessing.
+ */
+function incompleteLegs(trip: Trip, placed: readonly PlacedCard[]): Conflict[] {
+  const name = (id: string | null) =>
+    id === null ? 'home' : (trip.segments.find((s) => s.id === id)?.location.name ?? 'this stop');
+
+  return placed
+    .filter((p) => p.card.anchor.kind === 'connection' && p.option.timing?.kind !== 'journey')
+    .map((p) => {
+      const id = (p.card.anchor as { connectionId: string }).connectionId;
+      const conn = trip.connections.find((c) => c.id === id);
+      const route = conn ? ` from ${name(conn.fromSegmentId)} to ${name(conn.toSegmentId)}` : '';
+      return {
+        code: 'INCOMPLETE_LEG' as const,
+        severity: 'warning' as const,
+        message: `${label(p)} has no times yet, so the leg${route} is not being scheduled around.`,
+        segmentIds: [],
+        cardIds: [p.card.id],
+        flexible: { segmentIds: [], cardIds: [p.card.id] },
+      };
+    });
 }
 
 /**

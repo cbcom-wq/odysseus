@@ -1,4 +1,5 @@
-import type { Card, PlanningState } from './types.js';
+import { fareGroupPartners, fareSelection } from './fare-group.js';
+import type { Card, PlanningState, Trip } from './types.js';
 
 /**
  * Planning state governs *policy* — what the system is allowed to do to a card. It has no say in
@@ -72,4 +73,81 @@ export function selectOption(card: Card, optionId: string): StateChange {
   // state change is the user's to make.
   const state: PlanningState = card.state === 'unplanned' ? 'exploring' : card.state;
   return { ok: true, card: { ...card, state, selectedOptionId: optionId } };
+}
+
+export type TripChange =
+  | { readonly ok: true; readonly trip: Trip }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * The trip-level forms, which are what the interface should call.
+ *
+ * A return fare is one purchase filling two slots, so a decision about one leg is a decision about
+ * both. Card-level `selectOption` and `transitionCard` cannot see that — they are handed a single
+ * card — which is why the group-aware versions live here and take the whole trip.
+ *
+ * Either the whole group moves or none of it does. A half-applied fare is the state this exists to
+ * prevent, so a partner that refuses fails the entire change rather than leaving the legs disagreeing.
+ */
+export function selectOptionInTrip(trip: Trip, cardId: string, optionId: string): TripChange {
+  const card = trip.cards.find((c) => c.id === cardId);
+  if (!card) return { ok: false, reason: `No card ${cardId}.` };
+
+  const chosen = selectOption(card, optionId);
+  if (!chosen.ok) return { ok: false, reason: chosen.reason };
+
+  const { select, release } = fareSelection(trip, cardId, optionId);
+  const updated = new Map<string, Card>([[cardId, chosen.card]]);
+
+  for (const [partnerId, partnerOptionId] of select) {
+    if (partnerId === cardId) continue;
+    const other = trip.cards.find((c) => c.id === partnerId);
+    if (!other) continue;
+    const result = selectOption(other, partnerOptionId);
+    if (!result.ok) return { ok: false, reason: `${result.reason} It is the other leg of this fare.` };
+    updated.set(partnerId, result.card);
+  }
+
+  // Letting go of a fare frees its other leg too. Left selected, it would go on charging half a
+  // price for a purchase that has just been abandoned.
+  for (const partnerId of release) {
+    const other = trip.cards.find((c) => c.id === partnerId);
+    if (!other) continue;
+    if (!mayMutate(other.state)) {
+      return { ok: false, reason: `${other.id} is booked. It is the other leg of this fare.` };
+    }
+    const { selectedOptionId: _dropped, ...rest } = other;
+    updated.set(partnerId, { ...rest, state: 'exploring' });
+  }
+
+  return { ok: true, trip: { ...trip, cards: trip.cards.map((c) => updated.get(c.id) ?? c) } };
+}
+
+/**
+ * Move a card's planning state, taking the rest of its fare with it.
+ *
+ * Only propagates to partners that have the paired option actually selected. A card merely holding
+ * the other half of a fare it did not choose is not part of this decision.
+ */
+export function transitionCardInTrip(trip: Trip, cardId: string, to: PlanningState): TripChange {
+  const card = trip.cards.find((c) => c.id === cardId);
+  if (!card) return { ok: false, reason: `No card ${cardId}.` };
+
+  const moved = transitionCard(card, to);
+  if (!moved.ok) return { ok: false, reason: moved.reason };
+
+  const updated = new Map<string, Card>([[cardId, moved.card]]);
+  if (card.selectedOptionId !== undefined) {
+    for (const partner of fareGroupPartners(trip, cardId, card.selectedOptionId)) {
+      const other = trip.cards.find((c) => c.id === partner.cardId);
+      if (!other || other.selectedOptionId !== partner.optionId) continue;
+      const result = transitionCard(other, to);
+      if (!result.ok) {
+        return { ok: false, reason: `${result.reason} It is the other leg of this fare.` };
+      }
+      updated.set(partner.cardId, result.card);
+    }
+  }
+
+  return { ok: true, trip: { ...trip, cards: trip.cards.map((c) => updated.get(c.id) ?? c) } };
 }

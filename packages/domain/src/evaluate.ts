@@ -2,6 +2,7 @@ import { computeBudget } from './budget.js';
 import { detectCompatibilityConflicts } from './compatibility.js';
 import type { Conflict } from './conflicts.js';
 import { toMinutes } from './dates.js';
+import { fareGroupPartners, fareSelection } from './fare-group.js';
 import { connectionFor, placeCards } from './layout.js';
 import { schedule } from './scheduler.js';
 import type { Schedule } from './scheduler.js';
@@ -51,15 +52,39 @@ export interface RankedOption {
   readonly isCurrent: boolean;
 }
 
-/** Apply an option without touching the original. Returns undefined if the swap is not allowed. */
+/**
+ * Apply an option without touching the original. Returns undefined if the swap is not allowed.
+ *
+ * A grouped option brings the rest of its fare with it. That belongs here rather than in the caller
+ * because this function is what both the preview and the commitment run: a preview that swapped one
+ * leg while the real selection swapped two would report half a fare, and rank a one-way as a saving
+ * it is not.
+ *
+ * Every card the swap touches must be mutable, so a booked return leg protects the outbound. That is
+ * the correct answer for one purchase, not an over-reach.
+ */
 export function applyOption(trip: Trip, cardId: string, optionId: string): Trip | undefined {
   const card = trip.cards.find((c) => c.id === cardId);
   if (!card || !mayMutate(card.state)) return undefined;
   if (!card.options.some((o) => o.id === optionId)) return undefined;
 
+  const { select, release } = fareSelection(trip, cardId, optionId);
+  const letGo = new Set(release);
+
+  for (const id of [...select.keys(), ...release]) {
+    const target = trip.cards.find((c) => c.id === id);
+    if (!target || !mayMutate(target.state)) return undefined;
+  }
+
   return {
     ...trip,
-    cards: trip.cards.map((c) => (c.id === cardId ? { ...c, selectedOptionId: optionId } : c)),
+    cards: trip.cards.map((c) => {
+      const pick = select.get(c.id);
+      if (pick !== undefined) return { ...c, selectedOptionId: pick };
+      if (!letGo.has(c.id)) return c;
+      const { selectedOptionId: _dropped, ...rest } = c;
+      return { ...rest, state: 'exploring' as const };
+    }),
   };
 }
 
@@ -281,10 +306,25 @@ export function rankOptions(trip: Trip, cardId: string): RankedOption[] {
   // me what I'd be giving up" is precisely what a commitment makes worth asking, and answering it
   // with zeroes would claim a $98 and a $228 hotel cost the same. Evaluate against a hypothetically
   // unlocked copy so the numbers stay true; the warning is what stops anyone acting on them.
+  // Relax the partner legs too. A booked return fare makes both cards inert, and leaving the far leg
+  // booked would make every grouped option refuse the swap and drop out of the list entirely — the
+  // question would go unanswered rather than answered with a warning.
   const inert = !mayMutate(card.state);
-  const baseline: Trip = inert
-    ? { ...trip, cards: trip.cards.map((c) => (c.id === cardId ? { ...c, state: 'locked' } : c)) }
-    : trip;
+  const relaxed = new Set<string>(inert ? [cardId] : []);
+  for (const option of card.options) {
+    for (const partner of fareGroupPartners(trip, cardId, option.id)) {
+      const other = trip.cards.find((c) => c.id === partner.cardId);
+      if (other && !mayMutate(other.state)) relaxed.add(partner.cardId);
+    }
+  }
+
+  const baseline: Trip =
+    relaxed.size === 0
+      ? trip
+      : {
+          ...trip,
+          cards: trip.cards.map((c) => (relaxed.has(c.id) ? { ...c, state: 'locked' } : c)),
+        };
 
   for (const option of card.options) {
     const isCurrent = option.id === card.selectedOptionId;

@@ -1,3 +1,4 @@
+import { fareGroupPartners } from './fare-group.js';
 import type { Card, CardKind, Connection, Option, Segment, Trip } from './types.js';
 
 /**
@@ -33,6 +34,52 @@ export interface EditResult {
   readonly trip: Trip;
   /** Cards that could no longer exist after the edit. Surfaced, never silently dropped. */
   readonly removedCardIds: readonly string[];
+  /**
+   * Cards left holding half a fare whose other leg was removed.
+   *
+   * The link is stripped rather than kept pointing at nothing, but the price on the survivor is
+   * still half of a purchase that no longer exists, and only the traveller can say what it should
+   * be now. Saying so beats leaving a wrong number where a right one used to be.
+   */
+  readonly unpairedCardIds: readonly string[];
+}
+
+/**
+ * A fare needs at least two legs to be a fare.
+ *
+ * Removing a connection takes its cards with it, which can leave one half of a return flight behind.
+ * The survivor keeps its cost — the domain will not invent a new price — but loses the link, and its
+ * id comes back for the interface to report.
+ */
+function unpairLoneFares(trip: Trip): { trip: Trip; unpairedCardIds: readonly string[] } {
+  const counts = new Map<string, number>();
+  for (const card of trip.cards) {
+    for (const option of card.options) {
+      if (option.fareGroupId === undefined) continue;
+      counts.set(option.fareGroupId, (counts.get(option.fareGroupId) ?? 0) + 1);
+    }
+  }
+
+  const lone = new Set([...counts].filter(([, n]) => n < 2).map(([id]) => id));
+  if (lone.size === 0) return { trip, unpairedCardIds: [] };
+
+  const unpairedCardIds: string[] = [];
+  const cards = trip.cards.map((card) => {
+    if (!card.options.some((o) => o.fareGroupId !== undefined && lone.has(o.fareGroupId))) {
+      return card;
+    }
+    unpairedCardIds.push(card.id);
+    return {
+      ...card,
+      options: card.options.map((o) => {
+        if (o.fareGroupId === undefined || !lone.has(o.fareGroupId)) return o;
+        const { fareGroupId: _gone, ...rest } = o;
+        return rest;
+      }),
+    };
+  });
+
+  return { trip: { ...trip, cards }, unpairedCardIds };
 }
 
 /**
@@ -49,10 +96,12 @@ export function syncConnections(trip: Trip): EditResult {
     const removedCardIds = trip.cards
       .filter((c) => c.anchor.kind === 'connection')
       .map((c) => c.id);
-    return {
-      trip: { ...trip, connections: [], cards: trip.cards.filter((c) => c.anchor.kind !== 'connection') },
-      removedCardIds,
-    };
+    const unpaired = unpairLoneFares({
+      ...trip,
+      connections: [],
+      cards: trip.cards.filter((c) => c.anchor.kind !== 'connection'),
+    });
+    return { ...unpaired, removedCardIds };
   }
 
   const wanted: { from: string | null; to: string | null }[] = [
@@ -81,16 +130,15 @@ export function syncConnections(trip: Trip): EditResult {
     .filter((c) => c.anchor.kind === 'connection' && dropped.has(c.anchor.connectionId))
     .map((c) => c.id);
 
-  return {
-    trip: {
-      ...trip,
-      connections,
-      cards: trip.cards.filter(
-        (c) => c.anchor.kind !== 'connection' || !dropped.has(c.anchor.connectionId),
-      ),
-    },
-    removedCardIds,
-  };
+  const unpaired = unpairLoneFares({
+    ...trip,
+    connections,
+    cards: trip.cards.filter(
+      (c) => c.anchor.kind !== 'connection' || !dropped.has(c.anchor.connectionId),
+    ),
+  });
+
+  return { ...unpaired, removedCardIds };
 }
 
 export function addSegment(trip: Trip, name: string, atIndex?: number): EditResult {
@@ -122,7 +170,7 @@ export function removeSegment(trip: Trip, segmentId: string): EditResult {
 
   const synced = syncConnections(stripped);
   return {
-    trip: synced.trip,
+    ...synced,
     removedCardIds: [...cardsHere.map((c) => c.id), ...synced.removedCardIds],
   };
 }
@@ -131,7 +179,7 @@ export function moveSegment(trip: Trip, segmentId: string, delta: number): EditR
   const from = trip.segments.findIndex((s) => s.id === segmentId);
   const to = from + delta;
   if (from < 0 || to < 0 || to >= trip.segments.length) {
-    return { trip, removedCardIds: [] };
+    return { trip, removedCardIds: [], unpairedCardIds: [] };
   }
 
   const segments = [...trip.segments];
@@ -216,13 +264,27 @@ export function updateOption(trip: Trip, cardId: string, option: Option): Trip {
   };
 }
 
+/**
+ * Remove an option, and the rest of its fare with it.
+ *
+ * Half a return fare is not a thing anyone bought. Leaving the far leg behind would leave a
+ * half-price option pointing at a purchase that no longer exists, which is a quietly wrong number —
+ * worse than a removal the user was warned about. `fareGroupPartners` is what the interface uses to
+ * do that warning before calling this.
+ */
 export function removeOption(trip: Trip, cardId: string, optionId: string): Trip {
+  const doomed = new Map<string, string>([[cardId, optionId]]);
+  for (const partner of fareGroupPartners(trip, cardId, optionId)) {
+    doomed.set(partner.cardId, partner.optionId);
+  }
+
   return {
     ...trip,
     cards: trip.cards.map((c) => {
-      if (c.id !== cardId) return c;
-      const options = c.options.filter((o) => o.id !== optionId);
-      if (c.selectedOptionId !== optionId) return { ...c, options };
+      const gone = doomed.get(c.id);
+      if (gone === undefined) return c;
+      const options = c.options.filter((o) => o.id !== gone);
+      if (c.selectedOptionId !== gone) return { ...c, options };
 
       // The selection just went away. Fall back to whatever is left rather than leaving the card
       // pointing at nothing.

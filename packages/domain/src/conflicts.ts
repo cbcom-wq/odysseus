@@ -22,6 +22,7 @@ export type ConflictCode =
   | 'IMPOSSIBLE_TRANSFER'
   | 'UNCOVERED_NIGHT'
   | 'MISSING_CONNECTION'
+  | 'INCOMPLETE_LEG'
   | 'ORPHANED_CARD';
 
 export type ConflictSeverity = 'blocking' | 'warning';

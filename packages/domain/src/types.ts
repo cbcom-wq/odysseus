@@ -99,6 +99,18 @@ export interface Option {
    * page later would mean prices and times changing underneath a decision that was already made.
    */
   readonly sourceUrl?: string;
+  /**
+   * Options on different cards that were bought as one fare — the two legs of a return flight.
+   *
+   * The link belongs here rather than on the Card because a slot can hold a return fare and a
+   * one-way as rivals. Linking the cards would declare the trip permanently round-trip; linking the
+   * options means choosing the return fare settles both legs, while choosing the one-way leaves the
+   * other leg free to shop separately.
+   *
+   * At most one option per card may carry a given id: two alternatives on one card cannot both be
+   * halves of a single purchase.
+   */
+  readonly fareGroupId?: string;
   readonly attributes?: Readonly<Record<string, string | number | boolean>>;
 }
 
