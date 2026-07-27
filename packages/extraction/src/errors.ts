@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { CliFailedError, CliUnavailableError } from './cli-invocation.js';
 
 /**
  * Turning a failure into something worth reading.
@@ -17,6 +18,7 @@ export type ExtractionFailure =
   | 'offline'
   | 'refused'
   | 'unreachable-page'
+  | 'no-cli'
   | 'unreadable';
 
 /** The model declined to answer. Rare here, but a 200 rather than an error, so it needs its own throw. */
@@ -57,6 +59,7 @@ const MESSAGES: Record<ExtractionFailure, string> = {
   offline: "Couldn't reach Claude. Check your connection, or fill it in by hand.",
   refused: "Claude wouldn't read that one. Go ahead and fill it in by hand.",
   'unreachable-page': "That link didn't give up its details. Try a screenshot, or copy the page text and paste that instead.",
+  'no-cli': 'Claude Code was not found. Install it, or add an API key in Settings.',
   unreadable: "Couldn't read that automatically — go ahead and fill it in by hand.",
 };
 
@@ -64,6 +67,21 @@ function classify(error: unknown): ExtractionFailure {
   if (error instanceof MissingKeyError) return 'no-key';
   if (error instanceof RefusalError) return 'refused';
   if (error instanceof UnreachablePageError) return 'unreachable-page';
+
+  if (error instanceof CliUnavailableError) return 'no-cli';
+  if (error instanceof CliFailedError) return 'unreadable';
+
+  /*
+   * The desktop backend throws in the main process, and an error crossing Electron's IPC boundary
+   * arrives as a plain Error with the original class name folded into its message. The class is
+   * genuinely gone by then, so matching the name it left behind is the only thing left — which is
+   * why the throwing side sets `name` explicitly and why these two strings must keep matching the
+   * class names in cli-invocation.ts.
+   */
+  if (error instanceof Error) {
+    if (error.message.includes('CliUnavailableError')) return 'no-cli';
+    if (error.message.includes('CliFailedError')) return 'unreadable';
+  }
 
   // An aborted request is the user pressing Cancel, not something going wrong.
   if (error instanceof Error && error.name === 'AbortError') return 'cancelled';

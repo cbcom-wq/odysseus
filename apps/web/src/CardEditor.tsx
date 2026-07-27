@@ -26,6 +26,8 @@ export interface CardDraft {
   readonly startTime: string;
   readonly endTime: string;
   readonly sourceUrl: string;
+  /** Which day of the stay, when the card is being attached to one. Relative, so reflow is safe. */
+  readonly dayOffset: string;
 }
 
 /**
@@ -63,6 +65,7 @@ export function emptyDraft(kind: CardKind): CardDraft {
     startTime: '',
     endTime: '',
     sourceUrl: '',
+    dayOffset: '0',
   };
 }
 
@@ -127,9 +130,15 @@ export function optionFrom(draft: CardDraft, id: string): Option {
   };
 }
 
+export interface DayChoice {
+  readonly offset: number;
+  readonly label: string;
+}
+
 export function CardEditor({
   draft: initial,
   kinds,
+  days,
   title,
   submitLabel,
   topSlot,
@@ -140,6 +149,12 @@ export function CardEditor({
   draft: CardDraft;
   /** Kinds valid for where this is being attached. */
   kinds: readonly CardKind[];
+  /**
+   * Days this can be attached to, when it is going onto a stay rather than a leg. Without it
+   * everything silently landed on the first day of the segment, which is how a tour ended up on the
+   * morning of the arriving flight.
+   */
+  days?: readonly DayChoice[];
   title: string;
   submitLabel: string;
   /**
@@ -200,6 +215,27 @@ export function CardEditor({
                 </option>
               ))}
             </select>
+          </div>
+        ) : null}
+
+        {days && days.length > 0 ? (
+          <div className="field">
+            <label className="label" htmlFor="card-dayoffset">
+              Which day
+            </label>
+            <select
+              id="card-dayoffset"
+              className="select"
+              value={draft.dayOffset}
+              onChange={(e) => set('dayOffset', e.target.value)}
+            >
+              {days.map((day) => (
+                <option key={day.offset} value={String(day.offset)}>
+                  {day.label}
+                </option>
+              ))}
+            </select>
+            <div className="field__hint">You can move it to another day later.</div>
           </div>
         ) : null}
 

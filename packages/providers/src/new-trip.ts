@@ -7,6 +7,12 @@ export interface NewTripInput {
   readonly nights: { min: number; max: number };
   readonly destinations: readonly string[];
   readonly startDate?: string;
+  readonly currency?: string;
+  /**
+   * Ids already in use. Identity is derived rather than generated — the domain has no clock and no
+   * randomness — so the only way a derived id can stay unique is to be told what it must avoid.
+   */
+  readonly existingIds?: readonly string[];
 }
 
 /**
@@ -32,18 +38,35 @@ function startingRange(input: NewTripInput): { min: number; ideal: number; max: 
   return { min: 1, ideal, max: Math.max(ideal, input.nights.max) };
 }
 
+/**
+ * An id no existing trip is already using.
+ *
+ * Deriving it from the name alone meant planning "Europe in April" twice silently overwrote the
+ * first one — the repository saves by id, so a collision is not a clash, it is a deletion. Planning
+ * the same trip twice is an ordinary thing to do, so the id has to survive it.
+ */
+function uniqueTripId(input: NewTripInput): string {
+  const base = `trip-${input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'untitled'}`;
+  const taken = new Set(input.existingIds ?? []);
+
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
+}
+
 export function buildNewTrip(input: NewTripInput): Trip {
   const seen = new Map<string, number>();
 
   // Legs are derived from the stops, so a brand new trip already has somewhere to put the flight
   // out, the trains between, and the flight home.
   return syncConnections({
-    id: `trip-${input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${input.destinations.length}`,
+    id: uniqueTripId(input),
     name: input.name,
     travelers: input.travelers,
     ...(input.startDate ? { anchorDate: input.startDate } : {}),
     length: input.nights,
-    currency: 'USD',
+    currency: input.currency ?? 'USD',
     preferences: { ranking: 'balanced', dayStart: '08:00', dayEnd: '22:00' },
     schemaVersion: SCHEMA_VERSION,
     segments: input.destinations.map((name) => {

@@ -26,18 +26,38 @@ export function dateRange(from: string, to: string): string {
   return `${left} – ${right}, ${b.y}`;
 }
 
+/**
+ * Currencies worth a symbol. Everything else prints its code.
+ *
+ * The alternative — rendering an unknown currency as a bare number — is how a trip priced in euros
+ * came to read as though it were priced in nothing at all.
+ */
+const SYMBOL: Readonly<Record<string, string>> = {
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+  JPY: '¥',
+  CAD: 'CA$',
+  AUD: 'A$',
+  CHF: 'CHF ',
+};
+
+function withCurrency(magnitude: number, currency: string): string {
+  const digits = magnitude.toLocaleString('en-US');
+  const symbol = SYMBOL[currency];
+  return symbol === undefined ? `${digits} ${currency}` : `${symbol}${digits}`;
+}
+
 export function money(amount: number, currency = 'USD'): string {
   const rounded = Math.round(amount);
-  const sign = rounded < 0 ? '−' : '';
-  const symbol = currency === 'USD' ? '$' : '';
-  return `${sign}${symbol}${Math.abs(rounded).toLocaleString('en-US')}`;
+  return `${rounded < 0 ? '−' : ''}${withCurrency(Math.abs(rounded), currency)}`;
 }
 
 /** Signed money, for deltas. The sign is doing the work colour would otherwise do. */
 export function moneyDelta(amount: number, currency = 'USD'): string {
   const rounded = Math.round(amount);
   if (rounded === 0) return 'same cost';
-  return `${rounded > 0 ? '+' : '−'}${currency === 'USD' ? '$' : ''}${Math.abs(rounded).toLocaleString('en-US')}`;
+  return `${rounded > 0 ? '+' : '−'}${withCurrency(Math.abs(rounded), currency)}`;
 }
 
 export function duration(minutes: number): string {
@@ -46,10 +66,25 @@ export function duration(minutes: number): string {
   return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+/**
+ * What the time figure means, spelled out.
+ *
+ * "−5h 35m" next to a price reads as a second price, and a tester had to solve for the day window
+ * across two rows to work out whether it meant more transit or less of the trip. Say which.
+ */
 export function hoursDelta(hours: number): string {
   const minutes = Math.round(hours * 60);
-  if (minutes === 0) return 'same time';
-  return `${minutes > 0 ? '+' : '−'}${duration(minutes)}`;
+  if (minutes === 0) return 'same time on the ground';
+  return `${duration(minutes)} ${minutes > 0 ? 'more' : 'less'} on the ground`;
+}
+
+/** The assumption behind every usable-hours figure, said once where the numbers are. */
+export function groundTimeBasis(trip: Trip): string {
+  return (
+    `“On the ground” counts waking hours at a destination, between ${trip.preferences.dayStart} ` +
+    `and ${trip.preferences.dayEnd}, after travel, getting to and from the terminal, time checked ` +
+    `out of a hotel, and sleep lost to travelling overnight.`
+  );
 }
 
 /** The line of times under an option: what a timetable would print. */

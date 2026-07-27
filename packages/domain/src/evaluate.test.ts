@@ -79,13 +79,132 @@ describe('usable hours', () => {
     const before = arrivalChoice();
     const impact = diffTrips(before, applyOption(before, 'c-flight', 'early')!);
 
-    // Within an 08:00-22:00 day: landing at 21:00 leaves one usable hour, and the morning before
-    // the 14:00 departure is spent at home, not in Amsterdam. Landing at 11:35 leaves 10h25m.
-    // That difference — 9h25m — is the evening the traveller gets back, and it is the number the
-    // panel turns into a reason rather than a timestamp.
-    expect(impact.usableHoursDelta).toBeCloseTo(9 + 25 / 60, 6);
+    // Within an 08:00-22:00 day, measured door to door: the 14:00 flight means leaving for the
+    // airport at 12:00 and clearing the far one at 22:00, so the whole day is gone. The 06:00 one
+    // hands back Amsterdam from 12:35, but it is not the free win the timetable implies — it costs
+    // a 04:00 start, and those four hours are charged rather than waved through as time before the
+    // day begins. What is left is the afternoon the traveller actually gets, and it is the number
+    // the panel turns into a reason rather than a timestamp.
+    expect(impact.usableHoursDelta).toBeCloseTo(5 + 25 / 60, 6);
     expect(impact.costDelta).toBe(96); // and it costs $96 more
     expect(impact.transitTimeDelta).toBe(-85);
+  });
+
+  /** Paris to Amsterdam, mid-trip: the same journey in the morning or in the evening. */
+  function departureChoice(selected: 'morning' | 'evening'): Trip {
+    return trip({
+      anchorDate: '2026-04-11',
+      segments: [
+        segment('par', 'Paris', { min: 5, ideal: 5, max: 5 }),
+        segment('ams', 'Amsterdam', { min: 4, ideal: 4, max: 4 }),
+      ],
+      connections: [connection('in', null, 'par'), connection('par-ams', 'par', 'ams')],
+      cards: [
+        card(
+          'c-train',
+          'transport',
+          { kind: 'connection', connectionId: 'par-ams' },
+          [
+            journeyOption('morning', {
+              departDate: '2026-04-16',
+              departTime: '10:25',
+              arriveTime: '13:52',
+              durationMinutes: 207,
+              cost: 178,
+            }),
+            journeyOption('evening', {
+              departDate: '2026-04-16',
+              departTime: '19:25',
+              arriveTime: '22:49',
+              durationMinutes: 204,
+              cost: 118,
+            }),
+          ],
+          { selected },
+        ),
+      ],
+    });
+  }
+
+  it('charges a late arrival for the evening it costs, rather than crediting it', () => {
+    // The founding example: the cheaper one lands at 22:49 and costs you an evening in Amsterdam.
+    // A plain waking-window model scored that as a *gain*, because it pushed the journey into
+    // hours it treated as free and counted the day spent checked out of a Paris hotel as a day in
+    // Paris. Both are now paid for, and the $60 saving reads as the tradeoff it is.
+    const morning = departureChoice('morning');
+    const impact = diffTrips(morning, applyOption(morning, 'c-train', 'evening')!);
+
+    expect(impact.costDelta).toBe(-60);
+    expect(impact.usableHoursDelta).toBeLessThan(-2);
+  });
+
+  /** Two versions of the same leg, differing only in how much of the night they consume. */
+  function nightLength(long: boolean): Trip {
+    const base = departureChoice('morning');
+    return {
+      ...base,
+      cards: base.cards.map((c) =>
+        c.id !== 'c-train'
+          ? c
+          : {
+              ...c,
+              options: [
+                journeyOption('night', {
+                  departDate: '2026-04-16',
+                  departTime: '22:00',
+                  arriveTime: long ? '23:59' : '22:30',
+                  durationMinutes: long ? 119 : 30,
+                  cost: 100,
+                }),
+              ],
+              selectedOptionId: 'night',
+            },
+      ),
+    };
+  }
+
+  it('does not treat travelling through the night as free', () => {
+    // Both legs run entirely past the end of the waking day, so under a plain waking-window model
+    // both cost exactly nothing and a night coach was the best-scoring option on any leg. The long
+    // one takes two hours of someone's night and has to be charged for them.
+    const shortNight = diffTrips(nightLength(false), nightLength(false));
+    const longNight = diffTrips(nightLength(false), nightLength(true));
+
+    expect(shortNight.usableHoursDelta).toBe(0);
+    expect(longNight.usableHoursDelta).toBeLessThan(-1);
+  });
+
+  it('does not make a dawn start free just because the day has not begun', () => {
+    // A 07:40 flight means a 05:40 door-to-door start, which used to fall almost entirely outside
+    // the waking window and so cost almost nothing — the reason it out-scored every train on the
+    // leg. Against a mid-morning flight of identical door-to-door length it should now come out
+    // even, not ahead.
+    const withFlights = (dawn: boolean): Trip => {
+      const base = departureChoice('morning');
+      return {
+        ...base,
+        cards: base.cards.map((c) =>
+          c.id !== 'c-train'
+            ? c
+            : {
+                ...c,
+                kind: 'flight' as const,
+                options: [
+                  journeyOption('fly', {
+                    departDate: '2026-04-16',
+                    departTime: dawn ? '07:40' : '11:00',
+                    arriveTime: dawn ? '09:10' : '12:30',
+                    durationMinutes: 90,
+                    cost: 142,
+                  }),
+                ],
+                selectedOptionId: 'fly',
+              },
+        ),
+      };
+    };
+
+    expect(diffTrips(withFlights(false), withFlights(true)).usableHoursDelta).toBeCloseTo(0, 6);
   });
 
   it('is symmetric — swapping back reverses the deltas', () => {
@@ -270,5 +389,23 @@ describe('booked cards', () => {
 
     expect(ranked).toHaveLength(2);
     expect(ranked.find((r) => r.option.id === 'early')!.warning).toMatch(/unlock/i);
+  });
+
+  it('still say what the alternatives would have cost', () => {
+    // Returning zeroes claimed a $546 and a $642 flight cost the same, which is the one thing a
+    // traveller who has just spent money must not be told. Committing is exactly when "what did I
+    // give up?" becomes worth asking, and the warning is what stops anyone acting on the answer.
+    const t = arrivalChoice();
+    const booked: Trip = {
+      ...t,
+      cards: t.cards.map((c) => (c.id === 'c-flight' ? { ...c, state: 'booked' as const } : c)),
+    };
+
+    const inert = rankOptions(booked, 'c-flight').find((r) => r.option.id === 'early')!;
+    const live = rankOptions(t, 'c-flight').find((r) => r.option.id === 'early')!;
+
+    expect(inert.impact.costDelta).toBe(96);
+    expect(inert.impact.costDelta).toBe(live.impact.costDelta);
+    expect(inert.impact.usableHoursDelta).toBeCloseTo(live.impact.usableHoursDelta, 6);
   });
 });

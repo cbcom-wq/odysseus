@@ -170,6 +170,24 @@ export function addCard(trip: Trip, card: Card): Trip {
   return { ...trip, cards: [...trip.cards, card] };
 }
 
+/**
+ * Move a day-anchored card to a different day of its stay.
+ *
+ * The offset stays relative, so the card keeps travelling with the segment when the trip reflows.
+ * This is also the remedy for an orphan: a card stranded past the end of a shortened stay has
+ * somewhere to go that is not the bin.
+ */
+export function moveCardToDay(trip: Trip, cardId: string, dayOffset: number): Trip {
+  return {
+    ...trip,
+    cards: trip.cards.map((c) =>
+      c.id === cardId && c.anchor.kind === 'segment-day'
+        ? { ...c, anchor: { ...c.anchor, dayOffset: Math.max(0, Math.trunc(dayOffset)) } }
+        : c,
+    ),
+  };
+}
+
 export function removeCard(trip: Trip, cardId: string): Trip {
   return { ...trip, cards: trip.cards.filter((c) => c.id !== cardId) };
 }

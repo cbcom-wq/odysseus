@@ -8,10 +8,24 @@ import { useState } from 'react';
  * Deliberately short. A trip should be usable the moment you can name where you want to go — dates
  * and durations are things the workspace helps you work out, not a gate you pass to get in.
  */
+/** Currencies you can price a trip in. Enough to plan in the money you are actually spending. */
+const CURRENCIES: readonly { code: string; label: string }[] = [
+  { code: 'USD', label: 'US dollars ($)' },
+  { code: 'EUR', label: 'Euros (€)' },
+  { code: 'GBP', label: 'Pounds (£)' },
+  { code: 'JPY', label: 'Yen (¥)' },
+  { code: 'CAD', label: 'Canadian dollars (CA$)' },
+  { code: 'AUD', label: 'Australian dollars (A$)' },
+  { code: 'CHF', label: 'Swiss francs (CHF)' },
+];
+
 export function CreateTripDialog({
+  existingIds,
   onCreate,
   onCancel,
 }: {
+  /** So planning the same trip twice adds a second trip rather than overwriting the first. */
+  existingIds: readonly string[];
   onCreate: (trip: Trip) => void;
   onCancel: () => void;
 }) {
@@ -21,6 +35,7 @@ export function CreateTripDialog({
   const [minNights, setMinNights] = useState('7');
   const [maxNights, setMaxNights] = useState('14');
   const [startDate, setStartDate] = useState('');
+  const [currency, setCurrency] = useState('USD');
 
   const places = destinations
     .split(',')
@@ -41,6 +56,8 @@ export function CreateTripDialog({
           max: Math.max(Number(minNights) || 1, Number(maxNights) || 1),
         },
         destinations: places,
+        currency,
+        existingIds,
         ...(startDate ? { startDate } : {}),
       }),
     );
@@ -130,6 +147,28 @@ export function CreateTripDialog({
               value={maxNights}
               onChange={(e) => setMaxNights(e.target.value)}
             />
+          </div>
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="trip-currency">
+            Prices in
+          </label>
+          <select
+            id="trip-currency"
+            className="select"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+          >
+            {CURRENCIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+          <div className="field__hint">
+            Whatever you will be typing in. Nothing is converted — every figure stays the number you
+            entered.
           </div>
         </div>
 

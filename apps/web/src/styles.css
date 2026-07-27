@@ -673,6 +673,31 @@ button {
   margin-bottom: 10px;
 }
 
+/* The ranking preset, as a control rather than a sentence describing one. */
+.weigh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.weigh__label {
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.weigh__set {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+}
+
+/* A card-level control in the panel head, where the state pills live. */
+.field--inline {
+  margin-top: 12px;
+}
+
 .panel__empty {
   padding: 40px 20px;
   text-align: center;

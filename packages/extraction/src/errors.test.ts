@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it } from 'vitest';
+import { CliFailedError, CliUnavailableError } from './cli-invocation.js';
 import { MissingKeyError, RefusalError, describeExtractionError } from './errors.js';
 
 /**
@@ -59,6 +60,32 @@ describe('describeExtractionError', () => {
     expect(describeExtractionError(new Error('boom')).failure).toBe('unreadable');
     expect(describeExtractionError('a string').failure).toBe('unreadable');
     expect(describeExtractionError(undefined).failure).toBe('unreadable');
+  });
+
+  it('offers both ways out when Claude Code is missing', () => {
+    const { failure, message } = describeExtractionError(new CliUnavailableError());
+    expect(failure).toBe('no-cli');
+    expect(message).toMatch(/Install it.*API key/);
+  });
+
+  it('recognises a CLI failure that has crossed the IPC boundary', () => {
+    // Electron flattens the class away and folds its name into the message, so the renderer only
+    // ever sees this shape. If the class names in cli-invocation.ts change, this test fails.
+    const overIpc = new Error(
+      "Error invoking remote method 'extract:option': CliUnavailableError: Claude Code is not installed.",
+    );
+    expect(describeExtractionError(overIpc).failure).toBe('no-cli');
+
+    const failedOverIpc = new Error(
+      "Error invoking remote method 'extract:option': CliFailedError: something went wrong",
+    );
+    expect(describeExtractionError(failedOverIpc).failure).toBe('unreadable');
+  });
+
+  it('treats a failed CLI run as something to type in by hand', () => {
+    expect(describeExtractionError(new CliFailedError('credit balance too low')).failure).toBe(
+      'unreadable',
+    );
   });
 
   it('never leaves the user without a way forward', () => {

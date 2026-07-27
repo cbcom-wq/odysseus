@@ -1,11 +1,10 @@
 import type { CardKind } from '@odysseus/domain';
-import type { DraftPatch, PasteInput, PasteKind } from '@odysseus/extraction';
+import type { DraftPatch, OptionExtractor, PasteInput, PasteKind } from '@odysseus/extraction';
 import {
-  createExtractionClient,
   describeExtractionError,
   detectPasteKind,
-  extractFromPaste,
   isSupportedImageType,
+  runExtraction,
 } from '@odysseus/extraction';
 import { useRef, useState } from 'react';
 
@@ -65,13 +64,13 @@ function readClipboard(clipboard: DataTransfer): { kind: PasteKind; text: string
 
 export function PasteImportBox({
   allowedKinds,
-  apiKey,
+  extractor,
   onExtracted,
   onBusyChange,
   onOpenSettings,
 }: {
   allowedKinds: readonly CardKind[];
-  apiKey: string | undefined;
+  extractor: OptionExtractor;
   onExtracted: (patch: Partial<DraftPatch>) => void;
   /** Lets the form disable itself while a paste is being read. */
   onBusyChange: (busy: boolean) => void;
@@ -89,8 +88,7 @@ export function PasteImportBox({
     setStatus({ state: 'working', kind: input.kind });
 
     try {
-      const client = createExtractionClient(apiKey);
-      const outcome = await extractFromPaste(client, input, {
+      const outcome = await runExtraction(extractor, input, {
         allowedKinds,
         signal: controller.signal,
       });
@@ -151,14 +149,18 @@ export function PasteImportBox({
 
   const cancel = () => abort.current?.abort();
 
-  if (apiKey === undefined || apiKey.trim() === '') {
+  // Only the API backend can be unready, and only for want of a key.
+  if (!extractor.ready) {
     return (
       <div className="paste paste--muted">
         <span>Found this somewhere else?</span>{' '}
         <button type="button" className="linkish" onClick={onOpenSettings}>
           Add an API key
         </button>{' '}
-        <span>and paste the link, a screenshot, or the text.</span>
+        <span>
+          and paste the link, a screenshot, or the text. The desktop app does this without a key,
+          using Claude Code.
+        </span>
       </div>
     );
   }

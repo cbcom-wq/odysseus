@@ -1,5 +1,5 @@
 import { PRODUCT_NAME, SURFACE_NAME } from '@odysseus/brand';
-import type { Card, CardAnchor, CardKind, PlanningState, Trip } from '@odysseus/domain';
+import type { Card, CardAnchor, CardKind, PlanningState, RankingPreset, Trip } from '@odysseus/domain';
 import {
   addCard,
   addDays,
@@ -8,6 +8,7 @@ import {
   computeBudget,
   detectCompatibilityConflicts,
   kindsForAnchor,
+  moveCardToDay,
   moveSegment,
   nextCardId,
   nextOptionId,
@@ -21,7 +22,7 @@ import {
   updateOption,
 } from '@odysseus/domain';
 import { useEffect, useMemo, useState } from 'react';
-import type { CardDraft } from './CardEditor.js';
+import type { CardDraft, DayChoice } from './CardEditor.js';
 import { CardEditor, draftFromOption, emptyDraft, optionFrom } from './CardEditor.js';
 import { CreateTripDialog } from './CreateTripDialog.js';
 import { DayView } from './DayView.js';
@@ -30,7 +31,8 @@ import { PasteImportBox } from './PasteImportBox.js';
 import { SaveStatus } from './SaveStatus.js';
 import { SettingsDialog } from './SettingsDialog.js';
 import { StructureView } from './StructureView.js';
-import { dateRange, money, tripSubtitle } from './format.js';
+import { dateRange, money, shortDate, tripSubtitle } from './format.js';
+import { useExtractor } from './useExtractor.js';
 import { useSettingsStore } from './useSettingsStore.js';
 import { useTripStore } from './useTripStore.js';
 
@@ -125,6 +127,8 @@ function Workspace({
   const [draftVersion, setDraftVersion] = useState(0);
   const [reading, setReading] = useState(false);
 
+  const extractor = useExtractor(apiKey);
+
   /** Opening a different editor starts a different card. Nothing from the last one carries over. */
   const openEditor = (next: Editor | null) => {
     setEditor(next);
@@ -186,6 +190,15 @@ function Workspace({
    * lie: how long you actually get somewhere is decided by the legs either side of it. Record the
    * wish and let the schedule show what it can give.
    */
+  /**
+   * What the traveller is optimising for. A trip preference, not a view setting — the same two
+   * flights rank differently for someone counting money and someone counting evenings, and which
+   * of those they are is a fact about this trip.
+   */
+  const changeRanking = (ranking: RankingPreset) => {
+    update({ ...trip, preferences: { ...trip.preferences, ranking } });
+  };
+
   const changeDuration = (segmentId: string, nights: number) => {
     update({
       ...trip,
@@ -201,11 +214,17 @@ function Workspace({
     if (editor.mode === 'new-card') {
       const cardId = nextCardId(trip);
       const option = optionFrom(draft, `${cardId}-opt-1`);
+      // The form owns which day this lands on. Taking the anchor's day verbatim is what put a
+      // 09:30 tour on the morning the traveller was still in the air.
+      const anchor: CardAnchor =
+        editor.anchor.kind === 'segment-day'
+          ? { ...editor.anchor, dayOffset: Math.max(0, Number(draft.dayOffset) || 0) }
+          : editor.anchor;
       const card: Card = {
         id: cardId,
         kind: draft.kind,
         state: 'exploring',
-        anchor: editor.anchor,
+        anchor,
         options: [option],
         selectedOptionId: option.id,
       };
@@ -220,12 +239,27 @@ function Workspace({
     openEditor(null);
   };
 
+  /** The days of a stay, so a card being attached to one can say which. */
+  const daysOfSegment = (segmentId: string): DayChoice[] => {
+    const scheduled = schedule.segments.find((s) => s.segmentId === segmentId);
+    if (!scheduled) return [];
+    return Array.from({ length: scheduled.nights }, (_, offset) => ({
+      offset,
+      label: `Day ${offset + 1}${scheduled.startDate ? ` · ${shortDate(addDays(scheduled.startDate, offset))}` : ''}`,
+    }));
+  };
+
   const editorProps = () => {
     if (!editor) return null;
     if (editor.mode === 'new-card') {
+      const anchor = editor.anchor;
       return {
-        draft: emptyDraft(editor.kinds[0]!),
+        draft: {
+          ...emptyDraft(editor.kinds[0]!),
+          ...(anchor.kind === 'segment-day' ? { dayOffset: String(anchor.dayOffset) } : {}),
+        },
         kinds: editor.kinds,
+        ...(anchor.kind === 'segment-day' ? { days: daysOfSegment(anchor.segmentId) } : {}),
         title: 'Add to your trip',
         submitLabel: 'Add it',
       };
@@ -478,7 +512,6 @@ function Workspace({
             <StructureView
               trip={trip}
               schedule={schedule}
-              budget={budget}
               placed={placed}
               selectedCardId={selectedCardId}
               conflictedCardIds={conflictedCardIds}
@@ -499,9 +532,12 @@ function Workspace({
       <OptionsPanel
         trip={trip}
         schedule={schedule}
+        placed={placed}
         selectedCardId={selectedCardId}
         onChooseOption={chooseOption}
         onChangeState={changeState}
+        onChangeRanking={changeRanking}
+        onMoveCardToDay={(cardId, dayOffset) => update(moveCardToDay(trip, cardId, dayOffset))}
         onAddOption={(cardId) => openEditor({ mode: 'new-option', cardId })}
         onEditOption={(cardId, optionId) => openEditor({ mode: 'edit-option', cardId, optionId })}
         onRemoveOption={(cardId, optionId) => update(removeOption(trip, cardId, optionId))}
@@ -512,7 +548,11 @@ function Workspace({
       />
 
       {creating ? (
-        <CreateTripDialog onCreate={startTrip} onCancel={() => setCreating(false)} />
+        <CreateTripDialog
+          existingIds={trips.map((t) => t.id)}
+          onCreate={startTrip}
+          onCancel={() => setCreating(false)}
+        />
       ) : null}
 
       {editing ? (
@@ -520,6 +560,7 @@ function Workspace({
           key={draftVersion}
           draft={pasted ? { ...editing.draft, ...pasted } : editing.draft}
           kinds={editing.kinds}
+          {...('days' in editing && editing.days ? { days: editing.days } : {})}
           title={editing.title}
           submitLabel={editing.submitLabel}
           topSlot={
@@ -528,7 +569,7 @@ function Workspace({
             editor?.mode !== 'edit-option' ? (
               <PasteImportBox
                 allowedKinds={editing.kinds}
-                apiKey={apiKey}
+                extractor={extractor}
                 onOpenSettings={onOpenSettings}
                 onBusyChange={setReading}
                 onExtracted={(patch) => {

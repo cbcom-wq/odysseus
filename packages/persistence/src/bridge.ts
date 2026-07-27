@@ -4,15 +4,36 @@ import type { LoadResult, Repository, StoredTrip } from './repository.js';
 /**
  * The contract between a desktop shell and the interface running inside it.
  *
- * It lives here rather than in the shell because it is a storage contract, and keeping one copy is
- * what stops the main process, the preload bridge, and the renderer drifting apart. The shell
- * imports the channel names; the interface imports the repository.
+ * It lives here rather than in the shell because keeping one copy is what stops the main process,
+ * the preload bridge, and the renderer drifting apart. The shell imports the channel names; the
+ * interface imports the repository.
+ *
+ * Four of the five calls are about storing trips. The fifth is not, and it is worth saying why it
+ * earned its place: reading a pasted link or screenshot means running the Claude Code CLI, and only
+ * the main process can start a process. Without it a desktop user would have to hold an API key for
+ * a tool they already have installed and are already signed in to. The renderer still gets no
+ * filesystem, no shell, and no general IPC — it can ask for one extraction and nothing else.
  */
 
 export const TRIPS_LOAD_ALL = 'trips:loadAll';
 export const TRIPS_SAVE = 'trips:save';
 export const TRIPS_REMOVE = 'trips:remove';
 export const TRIPS_REVEAL = 'trips:reveal';
+export const EXTRACT_OPTION = 'extract:option';
+
+/**
+ * A paste to be read into card fields.
+ *
+ * Structural rather than imported from `@odysseus/extraction`: this package describes the shape of
+ * the conversation, and it should not take a dependency on the thing at the far end of it.
+ */
+export interface BridgeExtractionRequest {
+  readonly kind: 'url' | 'image' | 'text';
+  /** A link, the pasted text, or base64 image data, depending on `kind`. */
+  readonly payload: string;
+  readonly mediaType?: string;
+  readonly allowedKinds: readonly string[];
+}
 
 /**
  * The global the preload script exposes.
@@ -31,6 +52,11 @@ export interface DesktopBridge {
   remove(id: string): Promise<void>;
   /** Open the trips folder in the system file manager. */
   reveal(): Promise<void>;
+  /**
+   * Read a pasted link, screenshot, or block of text into card fields using the locally installed
+   * Claude Code. Rejects if it is not installed. Returns the raw fields for the caller to validate.
+   */
+  extractOption(request: BridgeExtractionRequest): Promise<unknown>;
 }
 
 /** The bridge if this is running inside a desktop shell, otherwise undefined. */

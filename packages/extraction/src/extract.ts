@@ -1,19 +1,17 @@
-import type Anthropic from '@anthropic-ai/sdk';
-import type { DraftPatch } from './draft.js';
-import { needsReviewNote, toDraftPatch } from './draft.js';
-import type { ScreenshotMediaType } from './extract-image.js';
+import { createExtractionClient } from './client.js';
 import { extractFromImage } from './extract-image.js';
-import type { ExtractOptions } from './extract-text.js';
 import { extractFromText } from './extract-text.js';
 import { extractFromUrl } from './extract-url.js';
+import type { ScreenshotMediaType } from './extract-image.js';
+import type { ExtractRequestOptions, OptionExtractor } from './extractor.js';
 import type { ExtractedFields } from './schema.js';
 
 /**
- * One way in, whatever was pasted.
+ * Reaching Claude over the API, with a key the user supplied.
  *
- * The three routes differ in how they reach the words and not in what they do with them, so the
- * interface should not have to care which one ran. It hands over a paste and gets back fields to
- * put in the form.
+ * The browser build's only option: a tab cannot start a process, so it cannot borrow the Claude
+ * Code login the way the desktop shell does. In the desktop build this is the fallback for anyone
+ * who would rather spend API credits than have the shell run a CLI.
  */
 
 export type PasteInput =
@@ -21,46 +19,28 @@ export type PasteInput =
   | { readonly kind: 'image'; readonly base64: string; readonly mediaType: ScreenshotMediaType }
   | { readonly kind: 'text'; readonly text: string };
 
-export interface ExtractionOutcome {
-  readonly fields: ExtractedFields;
-  /** Ready to spread over the editor's draft. */
-  readonly patch: Partial<DraftPatch>;
-  /** Whether to tell the user to look twice before saving. */
-  readonly needsReview: boolean;
-  readonly warnings: readonly string[];
-}
-
-export async function extractFromPaste(
-  client: Anthropic,
-  input: PasteInput,
-  options: ExtractOptions,
-): Promise<ExtractionOutcome> {
-  const fields = await run(client, input, options);
-  const sourceUrl = input.kind === 'url' ? input.url : undefined;
-
+export function createApiExtractor(apiKey: string | undefined): OptionExtractor {
   return {
-    fields,
-    patch: toDraftPatch(fields, sourceUrl),
-    needsReview: needsReviewNote(fields),
-    warnings: fields.warnings ?? [],
-  };
-}
+    id: 'api',
+    ready: apiKey !== undefined && apiKey.trim() !== '',
 
-function run(
-  client: Anthropic,
-  input: PasteInput,
-  options: ExtractOptions,
-): Promise<ExtractedFields> {
-  switch (input.kind) {
-    case 'url':
-      return extractFromUrl(client, input.url, options);
-    case 'image':
-      return extractFromImage(
-        client,
-        { base64: input.base64, mediaType: input.mediaType },
-        options,
-      );
-    case 'text':
-      return extractFromText(client, input.text, options);
-  }
+    extract(input: PasteInput, options: ExtractRequestOptions): Promise<ExtractedFields> {
+      // Built per call rather than held: the key can change in Settings between one paste and the
+      // next, and a stale client would keep using the old one.
+      const client = createExtractionClient(apiKey);
+
+      switch (input.kind) {
+        case 'url':
+          return extractFromUrl(client, input.url, options);
+        case 'image':
+          return extractFromImage(
+            client,
+            { base64: input.base64, mediaType: input.mediaType },
+            options,
+          );
+        case 'text':
+          return extractFromText(client, input.text, options);
+      }
+    },
+  };
 }

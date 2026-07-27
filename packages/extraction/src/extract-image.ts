@@ -1,6 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { ExtractOptions } from './extract-text.js';
-import { runExtraction } from './extract-text.js';
+import { runStructuredCall } from './extract-text.js';
 import type { ExtractedFields } from './schema.js';
 
 /**
@@ -29,7 +29,7 @@ export function extractFromImage(
   image: { readonly base64: string; readonly mediaType: ScreenshotMediaType },
   options: ExtractOptions,
 ): Promise<ExtractedFields> {
-  return runExtraction(
+  return runStructuredCall(
     client,
     [
       {

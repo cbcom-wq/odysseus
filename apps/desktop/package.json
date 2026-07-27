@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@odysseus/brand": "0.1.0",
+    "@odysseus/extraction": "0.1.0",
     "@odysseus/persistence": "0.1.0"
   },
   "devDependencies": {

@@ -199,3 +199,53 @@ describe('conflict ordering', () => {
     expect(severities).toContain('warning'); // uncovered nights in B
   });
 });
+
+describe('MISSING_CONNECTION', () => {
+  /** Two stops, no way between them. */
+  const stranded = trip({
+    anchorDate: '2026-04-20',
+    segments: [
+      segment('ams', 'Amsterdam', { min: 2, ideal: 2, max: 2 }),
+      segment('ber', 'Berlin', { min: 2, ideal: 2, max: 2 }),
+    ],
+    connections: [connection('ams-ber', 'ams', 'ber')],
+    cards: [
+      card('c-hotel', 'lodging', { kind: 'segment', segmentId: 'ams' }, [
+        floatingStayOption('Hotel Nes', { perNight: 195 }),
+      ]),
+      card('c-hotel-2', 'lodging', { kind: 'segment', segmentId: 'ber' }, [
+        floatingStayOption('Hotel Oderberger', { perNight: 142 }),
+      ]),
+    ],
+  });
+
+  it('says so, rather than only complaining that the stop has nowhere to sleep', () => {
+    // The Structure view says this inline where the leg would be, but a traveller working in the
+    // Day view got told five nights in Berlin had nowhere to stay and nothing about having no way
+    // to reach Berlin at all.
+    const conflict = detectCompatibilityConflicts(stranded, schedule(stranded)).find(
+      (c) => c.code === 'MISSING_CONNECTION',
+    );
+
+    expect(conflict).toBeDefined();
+    expect(conflict!.message).toContain('Amsterdam');
+    expect(conflict!.message).toContain('Berlin');
+  });
+
+  it('goes quiet once something covers the leg', () => {
+    const linked = {
+      ...stranded,
+      cards: [
+        ...stranded.cards,
+        card('c-train', 'transport', { kind: 'connection', connectionId: 'ams-ber' }, [
+          journeyOption('ICE 147', {
+            departDate: '2026-04-22',
+            departTime: '07:01',
+            arriveTime: '13:24',
+          }),
+        ]),
+      ],
+    };
+    expect(codes(linked)).not.toContain('MISSING_CONNECTION');
+  });
+});

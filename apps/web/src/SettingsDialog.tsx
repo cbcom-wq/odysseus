@@ -35,8 +35,9 @@ export function SettingsDialog({
       <form className="dialog" onSubmit={submit}>
         <h2>Settings</h2>
         <p>
-          With an Anthropic API key, {PRODUCT_NAME} can read a link, a screenshot, or copied text and
-          fill a card in for you. Without one, everything still works — you just type it in yourself.
+          {PRODUCT_NAME} can read a link, a screenshot, or copied text and fill a card in for you.
+          The desktop app does that through Claude Code, with nothing to set up here. In a browser
+          it needs an API key of your own. Either way the form still works by hand.
         </p>
 
         <div className="field">

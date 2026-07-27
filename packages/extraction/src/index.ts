@@ -1,5 +1,7 @@
+export * from './cli-invocation.js';
 export * from './client.js';
 export * from './detect-paste.js';
+export * from './extractor.js';
 export * from './draft.js';
 export * from './errors.js';
 export * from './extract.js';

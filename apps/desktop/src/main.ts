@@ -1,8 +1,16 @@
 import { join } from 'node:path';
 import { PRODUCT_NAME, STORAGE_NAMESPACE, WINDOW_TITLE } from '@odysseus/brand';
+import { extractWithCli } from '@odysseus/extraction/node';
 import { FileRepository } from '@odysseus/persistence/node';
 import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron';
-import { TRIPS_LOAD_ALL, TRIPS_REMOVE, TRIPS_REVEAL, TRIPS_SAVE } from '@odysseus/persistence';
+import type { BridgeExtractionRequest } from '@odysseus/persistence';
+import {
+  EXTRACT_OPTION,
+  TRIPS_LOAD_ALL,
+  TRIPS_REMOVE,
+  TRIPS_REVEAL,
+  TRIPS_SAVE,
+} from '@odysseus/persistence';
 
 /**
  * The desktop shell.
@@ -158,6 +166,58 @@ function registerHandlers(): void {
   });
 
   ipcMain.handle(TRIPS_REVEAL, () => shell.openPath(tripsDirectory));
+
+  ipcMain.handle(EXTRACT_OPTION, (_event, request: unknown) => {
+    // This one starts a process, so it is the handler most worth being strict in. The renderer is
+    // our own code, but "our own code" is also what would be handling a listing pasted in from a
+    // website, and a handler that forwards whatever arrives is how that becomes a problem.
+    return extractWithCli(readExtractionRequest(request));
+  });
+}
+
+/** The kinds a card can be. Anything else is not something the interface should be asking for. */
+const CARD_KINDS = ['flight', 'lodging', 'transport', 'activity', 'dining', 'note'] as const;
+type CardKind = (typeof CARD_KINDS)[number];
+
+/** A screenshot arrives base64-encoded, so this is generous for an image and mean for a mistake. */
+const MAX_PAYLOAD_CHARS = 12 * 1024 * 1024;
+
+function readExtractionRequest(value: unknown): {
+  kind: 'url' | 'image' | 'text';
+  payload: string;
+  mediaType?: string;
+  allowedKinds: readonly CardKind[];
+} {
+  if (typeof value !== 'object' || value === null) throw new Error('Malformed extraction request.');
+  const request = value as Partial<BridgeExtractionRequest>;
+
+  const { kind, payload, mediaType, allowedKinds } = request;
+
+  if (kind !== 'url' && kind !== 'image' && kind !== 'text') {
+    throw new Error('Malformed extraction request: unknown kind.');
+  }
+  if (typeof payload !== 'string' || payload === '') {
+    throw new Error('Malformed extraction request: nothing to read.');
+  }
+  if (payload.length > MAX_PAYLOAD_CHARS) {
+    throw new Error('That is too large to read.');
+  }
+  if (kind === 'url' && !/^https?:\/\//i.test(payload)) {
+    // Only web pages get fetched. A file:// path here would be asking the CLI to read the disk.
+    throw new Error('Only http and https links can be read.');
+  }
+
+  const kinds = Array.isArray(allowedKinds)
+    ? allowedKinds.filter((k): k is CardKind => CARD_KINDS.includes(k as CardKind))
+    : [];
+  if (kinds.length === 0) throw new Error('Malformed extraction request: no card kinds offered.');
+
+  return {
+    kind,
+    payload,
+    allowedKinds: kinds,
+    ...(typeof mediaType === 'string' ? { mediaType } : {}),
+  };
 }
 
 // One window at a time. A second instance should raise the first rather than open a rival copy

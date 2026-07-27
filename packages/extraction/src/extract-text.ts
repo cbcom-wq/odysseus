@@ -35,7 +35,7 @@ export interface ExtractOptions {
  * Shared by the text and screenshot routes, which differ only in what they put in front of the
  * instruction — a block of text in one case, an image in the other.
  */
-export async function runExtraction(
+export async function runStructuredCall(
   client: Anthropic,
   content: Anthropic.ContentBlockParam[],
   { allowedKinds, signal }: ExtractOptions,
@@ -73,7 +73,7 @@ export function extractFromText(
   text: string,
   options: ExtractOptions,
 ): Promise<ExtractedFields> {
-  return runExtraction(
+  return runStructuredCall(
     client,
     [
       { type: 'text', text: 'Here is the listing:' },

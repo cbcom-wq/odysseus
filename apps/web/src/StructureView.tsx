@@ -1,4 +1,4 @@
-import type { Budget, CardAnchor, CardKind, PlacedCard, Schedule, Trip } from '@odysseus/domain';
+import type { CardAnchor, CardKind, PlacedCard, Schedule, Trip } from '@odysseus/domain';
 import { addDays } from '@odysseus/domain';
 import { money, shortDate } from './format.js';
 import { TravelCard } from './TravelCard.js';
@@ -27,7 +27,6 @@ const LEG_KINDS: readonly CardKind[] = ['flight', 'transport'];
 export function StructureView({
   trip,
   schedule,
-  budget,
   placed,
   selectedCardId,
   conflictedCardIds,
@@ -41,7 +40,6 @@ export function StructureView({
 }: {
   trip: Trip;
   schedule: Schedule;
-  budget: Budget;
   placed: readonly PlacedCard[];
   selectedCardId: string | undefined;
   conflictedCardIds: ReadonlySet<string>;
@@ -53,14 +51,26 @@ export function StructureView({
   onRemoveStop: (segmentId: string) => void;
   onMoveStop: (segmentId: string, delta: number) => void;
 }) {
-  const costOfSegment = (segmentId: string): number => {
-    const days = new Set(
-      schedule.segments
-        .filter((s) => s.segmentId === segmentId)
-        .flatMap((s) => Array.from({ length: s.nights }, (_, i) => s.startDay + i)),
-    );
-    return budget.byDay.filter((d) => days.has(d.dayIndex)).reduce((sum, d) => sum + d.amount, 0);
-  };
+  /**
+   * What this stop costs — what you spend *at* it, not the fare that got you there.
+   *
+   * Summing the budget's days folded the arriving leg into the stop it lands on, so Amsterdam read
+   * $958 for a $780 hotel and the flight into Paris was excluded because it happens overnight, on a
+   * day no stop owns. Legs are shown on the legs; a stop counts its own cards.
+   */
+  const costOfSegment = (segmentId: string): number =>
+    placed
+      .filter(
+        (p) =>
+          (p.card.anchor.kind === 'segment' || p.card.anchor.kind === 'segment-day') &&
+          p.card.anchor.segmentId === segmentId &&
+          p.days.length > 0,
+      )
+      .reduce(
+        (sum, p) =>
+          sum + p.option.cost.amount * (p.option.cost.kind === 'per-night' ? p.days.length : 1),
+        0,
+      );
 
   const promptStop = (atIndex?: number) => {
     const name = window.prompt('Where to?');

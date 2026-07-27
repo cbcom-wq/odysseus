@@ -1,6 +1,7 @@
 import type { DesktopBridge } from '@odysseus/persistence';
 import {
   BRIDGE_GLOBAL,
+  EXTRACT_OPTION,
   TRIPS_LOAD_ALL,
   TRIPS_REMOVE,
   TRIPS_REVEAL,
@@ -11,8 +12,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 /**
  * The only thing the interface can see of the shell.
  *
- * Four calls, all about storing trips. The renderer gets no filesystem, no child processes, and no
- * general IPC, so the blast radius of anything going wrong in the interface stops here.
+ * Five calls: four about storing trips, and one that reads a pasted listing by running the Claude
+ * Code CLI. The renderer still gets no filesystem, no shell, and no general IPC — it can ask for
+ * one extraction with one payload, and the main process decides everything about how that runs.
  */
 
 // Passed in by the main process rather than rebuilt from environment variables, which would guess
@@ -27,6 +29,7 @@ const bridge: DesktopBridge = {
   save: (trip) => ipcRenderer.invoke(TRIPS_SAVE, trip),
   remove: (id) => ipcRenderer.invoke(TRIPS_REMOVE, id),
   reveal: () => ipcRenderer.invoke(TRIPS_REVEAL),
+  extractOption: (request) => ipcRenderer.invoke(EXTRACT_OPTION, request),
 };
 
 contextBridge.exposeInMainWorld(BRIDGE_GLOBAL, bridge);

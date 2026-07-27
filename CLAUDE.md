@@ -25,6 +25,8 @@ packages/
   domain/        entities, planning-state machine, scheduler,
                  option evaluation, budget rollup. Zero I/O.
   providers/     OptionProvider interface + FixtureProvider
+  extraction/    OptionExtractor interface + CLI and API backends:
+                 turns a pasted link, screenshot, or text into card fields
   persistence/   Repository interface + file and IndexedDB adapters
   brand/         what the product is called. The only place the name is written.
 apps/
@@ -32,9 +34,11 @@ apps/
   desktop/       Electron shell: window, menu, filesystem. No business logic.
 ```
 
-The desktop shell exposes exactly four calls to the interface (load, save, remove, reveal), defined
-once in `packages/persistence/src/bridge.ts` so the main process, preload, and renderer cannot drift
-apart. The renderer runs sandboxed with no Node access. Two things there are easy to get wrong and
+The desktop shell exposes exactly five calls to the interface (load, save, remove, reveal, and
+extractOption), defined once in `packages/persistence/src/bridge.ts` so the main process, preload,
+and renderer cannot drift apart. The fifth is the odd one out: reading a pasted link or screenshot
+means running the Claude Code CLI, and only the main process can start a process. It is what lets a
+desktop user skip the API key entirely. The renderer runs sandboxed with no Node access. Two things there are easy to get wrong and
 have already bitten once each: `apps/web` must build with `base: './'` or the shell loads a blank
 window from `file://`, and `userData` must be pinned to `STORAGE_NAMESPACE` because Electron
 otherwise derives it from the app name.

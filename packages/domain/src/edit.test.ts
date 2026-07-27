@@ -3,13 +3,25 @@ import {
   addCard,
   addOption,
   addSegment,
+  moveCardToDay,
   moveSegment,
   removeOption,
   removeSegment,
   syncConnections,
   updateOption,
 } from './edit.js';
-import { card, connection, floatingStayOption, journeyOption, segment, trip } from './test-support.js';
+import { placeCards } from './layout.js';
+import { schedule } from './scheduler.js';
+import {
+  card,
+  connection,
+  floatingStayOption,
+  journeyOption,
+  segment,
+  slotOption,
+  trip,
+} from './test-support.js';
+import type { Trip } from './types.js';
 
 describe('connections follow the stops', () => {
   it('gives a bare list of destinations a way in, between, and home', () => {
@@ -209,5 +221,64 @@ describe('options you add yourself', () => {
 
     const edited = updateOption(added, 'c-hotel', { ...found, title: 'Hotel Bravo, renamed' });
     expect(edited.cards[0]!.options[1]!.sourceUrl).toBe('https://example.com/hotels/bravo');
+  });
+});
+
+describe('moveCardToDay', () => {
+  const withActivity = (dayOffset: number) =>
+    trip({
+      anchorDate: '2026-04-11',
+      segments: [segment('par', 'Paris', { min: 1, ideal: 5, max: 5 })],
+      connections: [],
+      cards: [
+        card('c-tour', 'activity', { kind: 'segment-day', segmentId: 'par', dayOffset }, [
+          slotOption('versailles', { startTime: '09:30', endTime: '15:00' }),
+        ]),
+      ],
+    });
+
+  it('moves a card to another day of its stay', () => {
+    // There was no way to say this at all: an activity attached to a stop landed on day one whatever
+    // the traveller meant, which put a 09:30 tour on the morning of an 08:45 landing.
+    const moved = moveCardToDay(withActivity(0), 'c-tour', 2);
+    expect(moved.cards[0]!.anchor).toEqual({
+      kind: 'segment-day',
+      segmentId: 'par',
+      dayOffset: 2,
+    });
+  });
+
+  it('keeps the anchor relative, so the card still travels with a reflow', () => {
+    const moved = moveCardToDay(withActivity(0), 'c-tour', 2);
+    expect(moved.cards[0]!.anchor.kind).toBe('segment-day');
+  });
+
+  it('rescues an orphan rather than leaving deletion as the only way out', () => {
+    // A card stranded past the end of a shortened stay could previously only be edited — with no
+    // day field — or removed.
+    const stranded = withActivity(4);
+    const shortened: Trip = {
+      ...stranded,
+      segments: stranded.segments.map((s) => ({ ...s, duration: { min: 1, ideal: 2, max: 2 } })),
+    };
+    expect(placeCards(shortened, schedule(shortened))[0]!.orphaned).toBe(true);
+
+    const rescued = moveCardToDay(shortened, 'c-tour', 1);
+    expect(placeCards(rescued, schedule(rescued))[0]!.orphaned).toBe(false);
+  });
+
+  it('leaves a card anchored to the whole stay alone', () => {
+    const t = trip({
+      segments: [segment('par', 'Paris', { min: 1, ideal: 5, max: 5 })],
+      cards: [
+        card('c-hotel', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+          floatingStayOption('hotel', { perNight: 165 }),
+        ]),
+      ],
+    });
+    expect(moveCardToDay(t, 'c-hotel', 3).cards[0]!.anchor).toEqual({
+      kind: 'segment',
+      segmentId: 'par',
+    });
   });
 });

@@ -1,6 +1,21 @@
-import type { PlanningState, RankedOption, Schedule, Trip } from '@odysseus/domain';
-import { canTransition, rankOptions } from '@odysseus/domain';
-import { hoursDelta, moneyDelta, optionCost, optionTiming } from './format.js';
+import type {
+  Card,
+  PlacedCard,
+  PlanningState,
+  RankedOption,
+  RankingPreset,
+  Schedule,
+  Trip,
+} from '@odysseus/domain';
+import { addDays, canTransition, rankOptions } from '@odysseus/domain';
+import {
+  groundTimeBasis,
+  hoursDelta,
+  moneyDelta,
+  optionCost,
+  optionTiming,
+  shortDate,
+} from './format.js';
 
 /**
  * The primary surface of the workspace.
@@ -12,12 +27,21 @@ import { hoursDelta, moneyDelta, optionCost, optionTiming } from './format.js';
 
 const STATES: readonly PlanningState[] = ['exploring', 'selected', 'locked', 'booked'];
 
+const PRESETS: readonly { id: RankingPreset; label: string; hint: string }[] = [
+  { id: 'best-value', label: 'best value', hint: 'Money matters most; time on the ground is a bonus.' },
+  { id: 'balanced', label: 'balanced', hint: 'Money and time on the ground weighed against each other.' },
+  { id: 'comfort', label: 'comfort', hint: 'Time on the ground and short journeys beat the price.' },
+];
+
 export function OptionsPanel({
   trip,
   schedule,
+  placed,
   selectedCardId,
   onChooseOption,
   onChangeState,
+  onChangeRanking,
+  onMoveCardToDay,
   onAddOption,
   onEditOption,
   onRemoveOption,
@@ -25,9 +49,12 @@ export function OptionsPanel({
 }: {
   trip: Trip;
   schedule: Schedule;
+  placed: readonly PlacedCard[];
   selectedCardId: string | undefined;
   onChooseOption: (cardId: string, optionId: string) => void;
   onChangeState: (cardId: string, state: PlanningState) => void;
+  onChangeRanking: (preset: RankingPreset) => void;
+  onMoveCardToDay: (cardId: string, dayOffset: number) => void;
   onAddOption: (cardId: string) => void;
   onEditOption: (cardId: string, optionId: string) => void;
   onRemoveOption: (cardId: string, optionId: string) => void;
@@ -61,6 +88,8 @@ export function OptionsPanel({
           </div>
         ) : null}
 
+        <DayPicker trip={trip} schedule={schedule} placed={placed} card={card} onMove={onMoveCardToDay} />
+
         <div className="panel__states">
           {STATES.map((state) => (
             <button
@@ -87,15 +116,29 @@ export function OptionsPanel({
       <div className="panel__scroll">
         {card.state === 'booked' ? (
           <p className="panel__note">
-            This is booked, so nothing here will change it. The alternatives stay visible — unlock it
-            if you want to weigh them properly.
+            This is booked, so nothing here will change it — but the numbers are still what each
+            alternative would have done, so you can see what you committed to.
           </p>
-        ) : (
-          <p className="panel__note">
-            Sorted by what each would do to the whole trip, not by price.
-            {' '}Currently weighing for <strong>{trip.preferences.ranking.replace('-', ' ')}</strong>.
-          </p>
-        )}
+        ) : null}
+
+        <div className="weigh">
+          <span className="weigh__label">Weigh these for</span>
+          <span className="weigh__set" role="group" aria-label="What to weigh options for">
+            {PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="pill"
+                aria-pressed={trip.preferences.ranking === preset.id}
+                title={preset.hint}
+                onClick={() => onChangeRanking(preset.id)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </span>
+        </div>
+        <p className="panel__note">{groundTimeBasis(trip)}</p>
 
         {ranked.length === 0 ? (
           <p className="panel__note">
@@ -232,11 +275,72 @@ function OptionRow({
 }
 
 /**
+ * Which day of a stay a card sits on.
+ *
+ * Added because there was nowhere to say it: an activity dropped onto the segment landed on day one
+ * whatever you meant, which put a 09:30 tour on the morning of an 08:45 landing. It doubles as the
+ * way out for an orphan — a card stranded past the end of a shortened stay can be put back on a day
+ * that still exists, rather than only deleted.
+ */
+function DayPicker({
+  trip,
+  schedule,
+  placed,
+  card,
+  onMove,
+}: {
+  trip: Trip;
+  schedule: Schedule;
+  placed: readonly PlacedCard[];
+  card: Card;
+  onMove: (cardId: string, dayOffset: number) => void;
+}) {
+  const anchor = card.anchor;
+  if (anchor.kind !== 'segment-day') return null;
+
+  const scheduled = schedule.segments.find((s) => s.segmentId === anchor.segmentId);
+  if (!scheduled || scheduled.nights === 0) return null;
+
+  const orphaned = placed.find((p) => p.card.id === card.id)?.orphaned === true;
+  const place = trip.segments.find((s) => s.id === anchor.segmentId)?.location.name ?? 'this stop';
+  const current = anchor.dayOffset;
+
+  return (
+    <div className="field field--inline">
+      <label className="label" htmlFor="card-day">
+        Which day in {place}
+      </label>
+      <select
+        id="card-day"
+        className="select"
+        value={Math.min(current, scheduled.nights - 1)}
+        onChange={(e) => onMove(card.id, Number(e.target.value))}
+      >
+        {Array.from({ length: scheduled.nights }, (_, offset) => (
+          <option key={offset} value={offset}>
+            Day {offset + 1}
+            {scheduled.startDate ? ` · ${shortDate(addDays(scheduled.startDate, offset))}` : ''}
+          </option>
+        ))}
+      </select>
+      {orphaned ? (
+        <div className="field__hint">
+          This was planned for day {current + 1}, and the stay is now only {scheduled.nights} day
+          {scheduled.nights === 1 ? '' : 's'} long. Pick a day it can actually happen on.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * What this choice does beyond its own slot.
  *
  * "Nothing else moves" has to be earned. A flight that turns a red-eye into a morning departure
  * changes how long you are away even when every city keeps its dates, and saying nothing moved
- * would be quietly wrong.
+ * would be quietly wrong. Naming the stop is not enough either: "Shifts Amsterdam" was the only
+ * warning on an option that took a stay from the four nights the traveller asked for down to three,
+ * and they only found that out after committing. Say what it costs, before.
  */
 function ripple(entry: RankedOption, trip: Trip): string {
   const { scheduleShift, tripNightsDelta } = entry.impact;
@@ -249,11 +353,22 @@ function ripple(entry: RankedOption, trip: Trip): string {
     );
   }
 
-  if (scheduleShift.length > 0) {
-    const names = scheduleShift.map(
-      (s) => trip.segments.find((seg) => seg.id === s.segmentId)?.location.name ?? s.segmentId,
+  for (const shift of scheduleShift) {
+    const segment = trip.segments.find((seg) => seg.id === shift.segmentId);
+    const name = segment?.location.name ?? shift.segmentId;
+    const change = shift.toNights - shift.fromNights;
+
+    if (change === 0) {
+      parts.push(`${name} moves`);
+      continue;
+    }
+
+    const wanted = segment?.duration.ideal;
+    const shortOfWish =
+      wanted !== undefined && shift.toNights < wanted ? `, ${wanted - shift.toNights} short of the ${wanted} you want` : '';
+    parts.push(
+      `${name} ${change > 0 ? 'gains' : 'drops to'} ${change > 0 ? `${change} night${change === 1 ? '' : 's'}` : `${shift.toNights} night${shift.toNights === 1 ? '' : 's'}`}${shortOfWish}`,
     );
-    parts.push(`Shifts ${names.join(', ')}`);
   }
 
   return parts.length === 0 ? 'Nothing else in the trip moves' : parts.join(' · ');

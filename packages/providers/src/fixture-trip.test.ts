@@ -152,6 +152,45 @@ describe('a new trip', () => {
     expect(result.segments[0]!.startDate).toBe('2027-03-28');
   });
 
+  it('does not take the id of a trip that already exists', () => {
+    // Planning "Europe in April" twice is an ordinary thing to do. Deriving the id from the name
+    // meant the second one saved over the first — and because the repository saves by id, that was
+    // not a clash, it was a deletion, silent and complete.
+    const first = buildNewTrip({
+      name: 'Europe in April',
+      travelers: 2,
+      nights: { min: 13, max: 15 },
+      destinations: ['Paris', 'Amsterdam', 'Berlin'],
+    });
+    const second = buildNewTrip({
+      name: 'Europe in April',
+      travelers: 2,
+      nights: { min: 9, max: 10 },
+      destinations: ['Madrid', 'Seville', 'Granada'],
+      existingIds: [first.id],
+    });
+    const third = buildNewTrip({
+      name: 'Europe in April',
+      travelers: 2,
+      nights: { min: 5, max: 5 },
+      destinations: ['Rome'],
+      existingIds: [first.id, second.id],
+    });
+
+    expect(new Set([first.id, second.id, third.id]).size).toBe(3);
+  });
+
+  it('prices in the currency you are actually spending', () => {
+    const trip = buildNewTrip({
+      name: 'Europe in April',
+      travelers: 2,
+      nights: { min: 13, max: 15 },
+      destinations: ['Paris'],
+      currency: 'EUR',
+    });
+    expect(trip.currency).toBe('EUR');
+  });
+
   it('does not collide when a destination repeats', () => {
     const trip = buildNewTrip({
       name: 'Round trip',

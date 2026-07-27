@@ -21,6 +21,7 @@ export type ConflictCode =
   | 'TIMING_OVERLAP'
   | 'IMPOSSIBLE_TRANSFER'
   | 'UNCOVERED_NIGHT'
+  | 'MISSING_CONNECTION'
   | 'ORPHANED_CARD';
 
 export type ConflictSeverity = 'blocking' | 'warning';

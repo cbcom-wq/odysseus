@@ -46,9 +46,54 @@ export function detectCompatibilityConflicts(trip: Trip, schedule: Schedule): Co
 
   conflicts.push(...orphanedCards(placed));
   conflicts.push(...uncoveredNights(trip, schedule, placed));
+  conflicts.push(...unlinkedStops(trip, placed));
   conflicts.push(...timingClashes(placed));
 
   return sortConflicts(conflicts);
+}
+
+/**
+ * A stop with no way to reach it.
+ *
+ * The Structure view says this inline — "No way onward yet" sits right where the leg would be — but
+ * a traveller working in the Day view would never see it, and "5 nights in Berlin have nowhere to
+ * stay" is a strange thing to be told about a city you also cannot get to.
+ */
+function unlinkedStops(trip: Trip, placed: readonly PlacedCard[]): Conflict[] {
+  const served = new Set(
+    placed
+      .filter((p) => p.card.anchor.kind === 'connection')
+      .map((p) => (p.card.anchor as { connectionId: string }).connectionId),
+  );
+
+  const missing = trip.connections.filter((c) => !served.has(c.id));
+  if (missing.length === 0) return [];
+
+  const name = (id: string | null) =>
+    id === null ? 'home' : (trip.segments.find((s) => s.id === id)?.location.name ?? 'this stop');
+
+  // One conflict for all of them, not one each. A trip that has not been given any travel yet has
+  // every leg missing, and a banner per leg is a wall rather than a warning.
+  const legs = missing.map((c) => `${name(c.fromSegmentId)} to ${name(c.toSegmentId)}`);
+  const segmentIds = [
+    ...new Set(
+      missing.flatMap((c) => [c.fromSegmentId, c.toSegmentId]).filter((id): id is string => id !== null),
+    ),
+  ];
+
+  return [
+    {
+      code: 'MISSING_CONNECTION',
+      severity: 'warning',
+      message:
+        legs.length === 1
+          ? `Nothing gets you from ${legs[0]} yet.`
+          : `Nothing gets you from ${legs.slice(0, -1).join(', ')}, or ${legs[legs.length - 1]} yet.`,
+      segmentIds,
+      cardIds: [],
+      flexible: { segmentIds, cardIds: [] },
+    },
+  ];
 }
 
 function orphanedCards(placed: readonly PlacedCard[]): Conflict[] {
