@@ -1,4 +1,4 @@
-import { fareGroupPartners } from './fare-group.js';
+import { fareGroupPartners, nextFareGroupId, splitFare } from './fare-group.js';
 import type { Card, CardKind, Connection, Option, Segment, Trip } from './types.js';
 
 /**
@@ -294,6 +294,100 @@ export function removeOption(trip: Trip, cardId: string, optionId: string): Trip
       return { ...rest, options, state: 'unplanned' as const };
     }),
   };
+}
+
+export type ReturnLegOutcome =
+  | { readonly kind: 'linked'; readonly trip: Trip; readonly returnCardId: string }
+  /** The homeward leg already has a chosen flight. The fare was left whole and nothing was moved. */
+  | { readonly kind: 'occupied' }
+  | { readonly kind: 'not-applicable' };
+
+/**
+ * Give an imported return fare its second leg.
+ *
+ * Flight listings quote a round-trip price against the outbound flight's times. Taken at face value
+ * the trip gains a return fare with no return, so the second leg is built here: the price is halved
+ * across the two, both halves carry the same fare id, and the return option is left with **no
+ * timing** — which in this model means it pins nothing and floats, rather than inventing a date it
+ * was never told. `INCOMPLETE_LEG` is what tells the traveller it is still a blank.
+ *
+ * If the homeward leg already has a flight the traveller chose, nothing happens. Halving the fare
+ * would understate the trip by the other half, and selecting the placeholder over their existing
+ * flight would throw away a decision they made. Saying so and leaving the fare whole is the only
+ * answer that is not a wrong number or a silent overwrite.
+ */
+export function linkReturnLeg(
+  trip: Trip,
+  outboundCardId: string,
+  opts: { readonly returnDate?: string } = {},
+): ReturnLegOutcome {
+  const outbound = trip.cards.find((c) => c.id === outboundCardId);
+  if (!outbound || outbound.anchor.kind !== 'connection') return { kind: 'not-applicable' };
+
+  const fare = outbound.options.find((o) => o.id === outbound.selectedOptionId);
+  if (!fare || fare.cost.kind !== 'fixed') return { kind: 'not-applicable' };
+
+  const homeward = trip.connections.find((c) => c.toSegmentId === null);
+  if (!homeward || homeward.id === outbound.anchor.connectionId) return { kind: 'not-applicable' };
+
+  const existing = trip.cards.find(
+    (c) =>
+      c.kind === 'flight' &&
+      c.anchor.kind === 'connection' &&
+      c.anchor.connectionId === homeward.id,
+  );
+  if (existing?.selectedOptionId !== undefined) return { kind: 'occupied' };
+
+  const fareGroupId = nextFareGroupId(trip);
+  const [outHalf, backHalf] = splitFare(fare.cost.amount, 2) as [number, number];
+
+  const halved: Trip = {
+    ...trip,
+    cards: trip.cards.map((c) =>
+      c.id !== outboundCardId
+        ? c
+        : {
+            ...c,
+            options: c.options.map((o) =>
+              o.id === fare.id ? { ...o, cost: { ...o.cost, amount: outHalf }, fareGroupId } : o,
+            ),
+          },
+    ),
+  };
+
+  const placeholder = {
+    source: 'user' as const,
+    title: 'Return flight',
+    detail:
+      opts.returnDate === undefined
+        ? 'Times not known yet'
+        : `Returns ${opts.returnDate} — times not known yet`,
+    cost: { kind: 'fixed' as const, amount: backHalf },
+    fareGroupId,
+    ...(fare.sourceUrl === undefined ? {} : { sourceUrl: fare.sourceUrl }),
+  };
+
+  if (existing) {
+    const option: Option = { id: nextOptionId(existing), ...placeholder };
+    return {
+      kind: 'linked',
+      trip: addOption(halved, existing.id, option),
+      returnCardId: existing.id,
+    };
+  }
+
+  const cardId = nextCardId(halved);
+  const option: Option = { id: `${cardId}-opt-1`, ...placeholder };
+  const card: Card = {
+    id: cardId,
+    kind: 'flight',
+    state: 'exploring',
+    anchor: { kind: 'connection', connectionId: homeward.id },
+    options: [option],
+    selectedOptionId: option.id,
+  };
+
+  return { kind: 'linked', trip: addCard(halved, card), returnCardId: cardId };
 }
 
 export function renameTrip(trip: Trip, name: string): Trip {

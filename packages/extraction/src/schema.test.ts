@@ -14,6 +14,8 @@ const FULL = {
   durationMinutes: 445,
   startTime: null,
   endTime: null,
+  roundTrip: true,
+  returnDate: '2026-09-28',
   confidence: 'high',
   warnings: [],
 };

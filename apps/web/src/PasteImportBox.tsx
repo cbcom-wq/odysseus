@@ -1,5 +1,11 @@
 import type { CardKind } from '@odysseus/domain';
-import type { DraftPatch, OptionExtractor, PasteInput, PasteKind } from '@odysseus/extraction';
+import type {
+  DraftPatch,
+  ExtractedFields,
+  OptionExtractor,
+  PasteInput,
+  PasteKind,
+} from '@odysseus/extraction';
 import {
   describeExtractionError,
   detectPasteKind,
@@ -71,7 +77,12 @@ export function PasteImportBox({
 }: {
   allowedKinds: readonly CardKind[];
   extractor: OptionExtractor;
-  onExtracted: (patch: Partial<DraftPatch>) => void;
+  /**
+   * The raw fields come through alongside the patch because not everything extracted is a form
+   * field. `roundTrip` decides whether saving this builds a second leg, which the form has no way
+   * to express and the user should not have to restate.
+   */
+  onExtracted: (patch: Partial<DraftPatch>, fields: ExtractedFields) => void;
   /** Lets the form disable itself while a paste is being read. */
   onBusyChange: (busy: boolean) => void;
   onOpenSettings: () => void;
@@ -93,7 +104,7 @@ export function PasteImportBox({
         signal: controller.signal,
       });
 
-      onExtracted(outcome.patch);
+      onExtracted(outcome.patch, outcome.fields);
       setTyped('');
       finish({
         state: 'done',

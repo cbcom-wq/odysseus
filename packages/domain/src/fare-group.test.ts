@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeBudget } from './budget.js';
 import { detectCompatibilityConflicts } from './compatibility.js';
-import { syncConnections } from './edit.js';
+import { linkReturnLeg, syncConnections } from './edit.js';
 import { applyOption, diffTrips } from './evaluate.js';
 import { fareGroupPartners, nextFareGroupId, splitFare } from './fare-group.js';
 import { schedule } from './scheduler.js';
@@ -206,6 +206,55 @@ describe('a leg with no timing', () => {
     const t = roundTrip();
     const codes = detectCompatibilityConflicts(t, schedule(t)).map((c) => c.code);
     expect(codes).not.toContain('INCOMPLETE_LEG');
+  });
+});
+
+describe('importing a return fare that only showed the outbound', () => {
+  /** What the paste flow has just built: one flight card holding the whole $1,304 fare. */
+  function outboundOnly(): Trip {
+    return trip({
+      anchorDate: '2026-09-23',
+      length: { min: 5, max: 5 },
+      segments: [segment('lis', 'Lisbon', { min: 5, ideal: 5, max: 5 })],
+      connections: [connection('leg-1', null, 'lis'), connection('leg-2', 'lis', null)],
+      cards: [
+        card('card-out', 'flight', { kind: 'connection', connectionId: 'leg-1' }, [
+          leg('out-fare', { date: '2026-09-23', cost: 1304 }),
+        ]),
+      ],
+    });
+  }
+
+  it('builds a linked, timing-less second leg with half the fare', () => {
+    const result = linkReturnLeg(outboundOnly(), 'card-out', { returnDate: '2026-09-28' });
+    expect(result.kind).toBe('linked');
+    if (result.kind !== 'linked') return;
+
+    const back = result.trip.cards.find((c) => c.id === result.returnCardId)!;
+    expect(back.anchor).toEqual({ kind: 'connection', connectionId: 'leg-2' });
+
+    const placeholder = back.options[0]!;
+    // No timing: the scheduler must float rather than invent a return date it was never told.
+    expect(placeholder.timing).toBeUndefined();
+    expect(placeholder.detail).toContain('2026-09-28');
+    expect(placeholder.cost.amount).toBe(652);
+
+    const outbound = result.trip.cards.find((c) => c.id === 'card-out')!;
+    expect(outbound.options[0]!.cost.amount).toBe(652);
+    expect(outbound.options[0]!.fareGroupId).toBe(placeholder.fareGroupId);
+
+    // The fare is counted once, and the blank leg says so.
+    expect(computeBudget(result.trip, schedule(result.trip)).total).toBe(1304);
+    expect(
+      detectCompatibilityConflicts(result.trip, schedule(result.trip)).map((c) => c.code),
+    ).toContain('INCOMPLETE_LEG');
+  });
+
+  // Halving the fare here would understate the trip by $652, and selecting the placeholder over the
+  // flight they already chose would throw that decision away.
+  it('leaves the fare whole when the homeward leg already has a chosen flight', () => {
+    const t = roundTrip();
+    expect(linkReturnLeg(t, 'card-out', {}).kind).toBe('occupied');
   });
 });
 

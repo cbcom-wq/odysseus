@@ -7,7 +7,9 @@ import {
   addSegment,
   computeBudget,
   detectCompatibilityConflicts,
+  fareGroupPartners,
   kindsForAnchor,
+  linkReturnLeg,
   moveCardToDay,
   moveSegment,
   nextCardId,
@@ -17,10 +19,11 @@ import {
   removeOption,
   removeSegment,
   schedule as runSchedule,
-  selectOption,
-  transitionCard,
+  selectOptionInTrip,
+  transitionCardInTrip,
   updateOption,
 } from '@odysseus/domain';
+import type { ExtractedFields } from '@odysseus/extraction';
 import { useEffect, useMemo, useState } from 'react';
 import type { CardDraft, DayChoice } from './CardEditor.js';
 import { CardEditor, draftFromOption, emptyDraft, optionFrom } from './CardEditor.js';
@@ -124,6 +127,10 @@ function Workspace({
    * effect on a fresh mount — the same reason `Workspace` itself is keyed by trip id above.
    */
   const [pasted, setPasted] = useState<Partial<CardDraft> | null>(null);
+  // Not everything read off a listing is a form field. Whether the price covered a return journey
+  // decides whether saving builds a second leg, and the form has nowhere to put that.
+  const [pastedFields, setPastedFields] = useState<ExtractedFields | null>(null);
+  const [returnPrompt, setReturnPrompt] = useState<string | null>(null);
   const [draftVersion, setDraftVersion] = useState(0);
   const [reading, setReading] = useState(false);
 
@@ -133,12 +140,16 @@ function Workspace({
   const openEditor = (next: Editor | null) => {
     setEditor(next);
     setPasted(null);
+    setPastedFields(null);
     setReading(false);
     setDraftVersion((n) => n + 1);
   };
 
   /** Apply an edit that may invalidate cards, and say so rather than letting them vanish. */
-  const applyEdit = (result: { trip: Trip; removedCardIds: readonly string[] }, why: string) => {
+  const applyEdit = (
+    result: { trip: Trip; removedCardIds: readonly string[]; unpairedCardIds?: readonly string[] },
+    why: string,
+  ) => {
     update(result.trip);
     if (result.removedCardIds.length > 0) {
       const n = result.removedCardIds.length;
@@ -146,6 +157,12 @@ function Workspace({
         `${why} ${n} card${n === 1 ? '' : 's'} no longer applied, so ${n === 1 ? 'it was' : 'they were'} removed.`,
       );
       if (result.removedCardIds.includes(selectedCardId ?? '')) setSelectedCardId(undefined);
+    } else if (result.unpairedCardIds !== undefined && result.unpairedCardIds.length > 0) {
+      // The survivor still holds half a price for a purchase that no longer exists. Only the
+      // traveller can say what it should be now, so the least we owe them is to point at it.
+      setNotice(
+        `${why} A return fare lost its other leg — check the price on what is left of it.`,
+      );
     }
   };
 
@@ -161,26 +178,31 @@ function Workspace({
     };
   }, [trip]);
 
+  /** A leg that exists but has no times yet. Nothing to correct, everything still to fill in. */
+  const editingPlaceholder =
+    editor?.mode === 'edit-option' &&
+    trip.cards
+      .find((c) => c.id === editor.cardId)
+      ?.options.find((o) => o.id === editor.optionId)?.timing === undefined;
+
   const conflictedCardIds = useMemo(() => new Set(conflicts.flatMap((c) => c.cardIds)), [conflicts]);
   const conflictedSegmentIds = useMemo(
     () => new Set(conflicts.flatMap((c) => c.segmentIds)),
     [conflicts],
   );
 
+  // Both go through the trip-level forms: a return fare fills two cards, and a decision about one
+  // leg is a decision about both. The card-level versions cannot see that.
   const chooseOption = (cardId: string, optionId: string) => {
-    const card = trip.cards.find((c) => c.id === cardId);
-    if (!card) return;
-    const result = selectOption(card, optionId);
+    const result = selectOptionInTrip(trip, cardId, optionId);
     if (!result.ok) return setNotice(result.reason);
-    update({ ...trip, cards: trip.cards.map((c) => (c.id === cardId ? result.card : c)) });
+    update(result.trip);
   };
 
   const changeState = (cardId: string, state: PlanningState) => {
-    const card = trip.cards.find((c) => c.id === cardId);
-    if (!card) return;
-    const result = transitionCard(card, state);
+    const result = transitionCardInTrip(trip, cardId, state);
     if (!result.ok) return setNotice(result.reason);
-    update({ ...trip, cards: trip.cards.map((c) => (c.id === cardId ? result.card : c)) });
+    update(result.trip);
   };
 
   /**
@@ -228,7 +250,27 @@ function Workspace({
         options: [option],
         selectedOptionId: option.id,
       };
-      update(addCard(trip, card));
+
+      // A flight listing quotes the return price against the outbound times. Saving it as one card
+      // would leave the trip holding a return fare with no return, so the second leg is built here
+      // rather than waiting for the traveller to notice.
+      let next = addCard(trip, card);
+      if (pastedFields?.roundTrip === true && card.kind === 'flight') {
+        const linked = linkReturnLeg(next, cardId, {
+          ...(pastedFields.returnDate === null ? {} : { returnDate: pastedFields.returnDate }),
+        });
+        if (linked.kind === 'linked') {
+          next = linked.trip;
+          setReturnPrompt(linked.returnCardId);
+        } else if (linked.kind === 'occupied') {
+          setNotice(
+            'That looked like a return fare, but the leg home already has a flight. The whole ' +
+              'price stayed on this one.',
+          );
+        }
+      }
+
+      update(next);
       setSelectedCardId(cardId);
     } else if (editor.mode === 'new-option') {
       const card = trip.cards.find((c) => c.id === editor.cardId);
@@ -565,15 +607,18 @@ function Workspace({
           submitLabel={editing.submitLabel}
           topSlot={
             // Only when adding something. Re-editing an option you already saved is a correction,
-            // and pasting a different listing over it would be a new option, not an edit.
-            editor?.mode !== 'edit-option' ? (
+            // and pasting a different listing over it would be a new option, not an edit. A blank
+            // return leg is the exception: there is nothing there to correct, and pasting the
+            // return flight is exactly what it is waiting for.
+            editor?.mode !== 'edit-option' || editingPlaceholder ? (
               <PasteImportBox
                 allowedKinds={editing.kinds}
                 extractor={extractor}
                 onOpenSettings={onOpenSettings}
                 onBusyChange={setReading}
-                onExtracted={(patch) => {
+                onExtracted={(patch, fields) => {
                   setPasted((current) => ({ ...current, ...patch }));
+                  setPastedFields(fields);
                   setDraftVersion((n) => n + 1);
                 }}
               />
@@ -584,6 +629,47 @@ function Workspace({
           onCancel={() => openEditor(null)}
         />
       ) : null}
+
+      {returnPrompt ? (
+        <ReturnLegPrompt
+          onAdd={() => {
+            const card = trip.cards.find((c) => c.id === returnPrompt);
+            const optionId = card?.selectedOptionId ?? card?.options[0]?.id;
+            setReturnPrompt(null);
+            if (card && optionId) openEditor({ mode: 'edit-option', cardId: card.id, optionId });
+          }}
+          onLater={() => setReturnPrompt(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The other half of a fare that was only half shown.
+ *
+ * The leg already exists by the time this appears — walking away costs nothing, and the trip is
+ * left saying plainly that one flight has no times rather than quietly missing one.
+ */
+function ReturnLegPrompt({ onAdd, onLater }: { onAdd: () => void; onLater: () => void }) {
+  return (
+    <div className="overlay" role="dialog" aria-modal="true" aria-label="Return flight">
+      <div className="dialog">
+        <h2>What about the flight home?</h2>
+        <p>
+          That price covers a return, but the listing only showed the outbound flight. The leg home
+          is on your trip with half the fare against it and no times yet, so nothing is scheduled
+          around it.
+        </p>
+        <div className="actions">
+          <button type="button" className="btn" onClick={onLater}>
+            Later
+          </button>
+          <button type="button" className="btn btn--primary" onClick={onAdd}>
+            Add the return details
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

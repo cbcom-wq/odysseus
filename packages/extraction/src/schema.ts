@@ -26,6 +26,16 @@ export interface ExtractedFields {
   readonly durationMinutes: number | null;
   readonly startTime: string | null;
   readonly endTime: string | null;
+  /**
+   * The price covers a return journey, even when only one leg's times are shown.
+   *
+   * This is the normal shape of a flight listing, not an edge case: the fare is quoted for the round
+   * trip and the panel details the outbound. Taken at face value the trip acquires a return fare with
+   * no return, so the import has to know to build the second leg.
+   */
+  readonly roundTrip: boolean | null;
+  /** The return date when the source shows one, even if it shows no times to go with it. */
+  readonly returnDate: string | null;
   /** How sure the model is overall. Drives whether the form warns the user to look twice. */
   readonly confidence: 'high' | 'medium' | 'low' | null;
   /** Short notes about anything assumed or ambiguous, e.g. "no year was printed; assumed 2026". */
@@ -57,6 +67,8 @@ export function buildExtractionSchema(allowedKinds: readonly CardKind[]) {
     durationMinutes: z.number().nullable(),
     startTime: z.string().nullable(),
     endTime: z.string().nullable(),
+    roundTrip: z.boolean().nullable(),
+    returnDate: z.string().nullable(),
     confidence: z.enum(['high', 'medium', 'low']).nullable(),
     warnings: z.array(z.string()).nullable(),
   });
@@ -83,6 +95,11 @@ export const FIELD_GUIDE = `
   night train. False for a same-day journey.
 - durationMinutes: total travel time in minutes. "7h 25m" is 445.
 - startTime / endTime: for something booked within a day, such as a tour or a dinner reservation.
+- roundTrip: true when the price covers a return journey. Flight results usually quote a round-trip
+  fare while detailing only the outbound flight — say true even when the return times are absent,
+  and put the outbound's times in departTime/arriveTime. Say false for a genuine one-way.
+- returnDate: the return date if one is shown anywhere, formatted YYYY-MM-DD, even when no return
+  times are given. Null if the source does not show it.
 - confidence: high when the source stated things plainly, low when you had to infer a lot.
 - warnings: short notes on anything assumed, ambiguous, or possibly stale. Empty when nothing
   needed assuming.
