@@ -235,7 +235,7 @@ function Workspace({
 
     if (editor.mode === 'new-card') {
       const cardId = nextCardId(trip);
-      const option = optionFrom(draft, `${cardId}-opt-1`);
+      const option = optionFrom(draft, `${cardId}-opt-1`, trip.travelers);
       // The form owns which day this lands on. Taking the anchor's day verbatim is what put a
       // 09:30 tour on the morning the traveller was still in the air.
       const anchor: CardAnchor =
@@ -274,9 +274,9 @@ function Workspace({
       setSelectedCardId(cardId);
     } else if (editor.mode === 'new-option') {
       const card = trip.cards.find((c) => c.id === editor.cardId);
-      if (card) update(addOption(trip, card.id, optionFrom(draft, nextOptionId(card))));
+      if (card) update(addOption(trip, card.id, optionFrom(draft, nextOptionId(card), trip.travelers)));
     } else {
-      update(updateOption(trip, editor.cardId, optionFrom(draft, editor.optionId)));
+      update(updateOption(trip, editor.cardId, optionFrom(draft, editor.optionId, trip.travelers)));
     }
     openEditor(null);
   };
@@ -625,6 +625,7 @@ function Workspace({
             ) : null
           }
           busy={reading}
+          travelers={trip.travelers}
           onSave={saveFromEditor}
           onCancel={() => openEditor(null)}
         />

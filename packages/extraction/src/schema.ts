@@ -19,6 +19,14 @@ export interface ExtractedFields {
   readonly detail: string | null;
   readonly amount: number | null;
   readonly perNight: boolean | null;
+  /**
+   * The price shown is for one traveller, not the whole party.
+   *
+   * Flight results quote per-traveller by default and print the party total in small type beside it.
+   * Costs in this model are for the whole party, so getting this wrong multiplies the largest line
+   * item in the trip by the size of the party.
+   */
+  readonly perTraveler: boolean | null;
   readonly departDate: string | null;
   readonly departTime: string | null;
   readonly arriveTime: string | null;
@@ -60,6 +68,7 @@ export function buildExtractionSchema(allowedKinds: readonly CardKind[]) {
     detail: z.string().nullable(),
     amount: z.number().nullable(),
     perNight: z.boolean().nullable(),
+    perTraveler: z.boolean().nullable(),
     departDate: z.string().nullable(),
     departTime: z.string().nullable(),
     arriveTime: z.string().nullable(),
@@ -89,6 +98,10 @@ export const FIELD_GUIDE = `
 - amount: the price as a plain number, no currency symbol or thousands separator. For lodging use
   the nightly rate if one is shown, otherwise the total.
 - perNight: true when amount is a per-night rate, false when it is the whole cost.
+- perTraveler: true when the price shown is for one traveller. Flight results usually are, and often
+  print the party total in smaller type next to it — report the headline number in amount and say
+  true here. If the two figures do not reconcile, still report both: the headline in amount, and what
+  the source claimed the total was, in warnings.
 - departDate: the date of departure, formatted YYYY-MM-DD. Only if a date is actually shown.
 - departTime / arriveTime: local wall-clock times at each end, formatted HH:mm on a 24-hour clock.
 - overnight: true only when arrival falls on the calendar day after departure, e.g. a red-eye or a

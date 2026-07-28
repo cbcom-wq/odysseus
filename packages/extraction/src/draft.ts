@@ -15,6 +15,7 @@ export interface DraftPatch {
   readonly detail: string;
   readonly amount: string;
   readonly perNight: boolean;
+  readonly perTraveler: boolean;
   readonly departDate: string;
   readonly departTime: string;
   readonly arriveTime: string;
@@ -49,6 +50,7 @@ export function toDraftPatch(
   put('detail', extracted.detail);
   put('amount', extracted.amount);
   put('perNight', extracted.perNight);
+  put('perTraveler', extracted.perTraveler);
   put('departDate', extracted.departDate);
   put('departTime', extracted.departTime);
   put('arriveTime', extracted.arriveTime);

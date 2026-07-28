@@ -51,6 +51,7 @@ export function buildJsonSchema(allowedKinds: readonly CardKind[]): unknown {
       detail: nullableString,
       amount: nullableNumber,
       perNight: nullableBoolean,
+      perTraveler: nullableBoolean,
       // Patterns rather than plain strings: asked for a time, the model will happily answer with a
       // whole ISO timestamp, and the form binds to a `time` input that shows nothing for one.
       departDate: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
@@ -71,6 +72,7 @@ export function buildJsonSchema(allowedKinds: readonly CardKind[]): unknown {
       'detail',
       'amount',
       'perNight',
+      'perTraveler',
       'departDate',
       'departTime',
       'arriveTime',

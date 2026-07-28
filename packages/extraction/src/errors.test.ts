@@ -9,7 +9,7 @@ import { MissingKeyError, RefusalError, describeExtractionError } from './errors
  * Real headers matter: `generate` treats a missing set as "the request never landed" and hands back
  * a connection error whatever the status says.
  */
-function apiError(status: number): Anthropic.APIError {
+function apiError(status: number): InstanceType<typeof Anthropic.APIError> {
   return Anthropic.APIError.generate(
     status,
     { error: { type: 'error', message: 'nope' } },

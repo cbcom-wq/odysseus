@@ -7,6 +7,7 @@ const FULL = {
   detail: 'ORD to AMS, nonstop',
   amount: 412,
   perNight: false,
+  perTraveler: true,
   departDate: '2026-09-23',
   departTime: '19:45',
   arriveTime: '11:35',

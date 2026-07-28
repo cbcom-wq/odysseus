@@ -18,6 +18,8 @@ export interface CardDraft {
   readonly detail: string;
   readonly amount: string;
   readonly perNight: boolean;
+  /** The figure typed is one traveller's share. Converted to a whole-party cost on save. */
+  readonly perTraveler: boolean;
   readonly departDate: string;
   readonly departTime: string;
   readonly arriveTime: string;
@@ -57,6 +59,7 @@ export function emptyDraft(kind: CardKind): CardDraft {
     detail: '',
     amount: '',
     perNight: kind === 'lodging',
+    perTraveler: false,
     departDate: '',
     departTime: '',
     arriveTime: '',
@@ -79,6 +82,7 @@ export function draftFromOption(card: Card, option: Option): CardDraft {
     sourceUrl: option.sourceUrl ?? '',
     amount: String(option.cost.amount),
     perNight: option.cost.kind === 'per-night',
+    perTraveler: false,
     ...(timing?.kind === 'journey'
       ? {
           departDate: timing.departDate,
@@ -112,7 +116,19 @@ function timingFrom(draft: CardDraft): OptionTiming | undefined {
   return undefined;
 }
 
-export function optionFrom(draft: CardDraft, id: string): Option {
+/**
+ * Costs in this model are for the whole party, so a per-traveller price is multiplied here.
+ *
+ * Flight results quote per-traveller by default. Storing that figure as-is understates the biggest
+ * line item in the trip by the size of the party, which is why the form makes the conversion visible
+ * rather than doing it silently on the way past.
+ */
+export function partyAmount(draft: CardDraft, travelers: number): number {
+  const each = Math.max(0, Number(draft.amount) || 0);
+  return draft.perTraveler ? each * Math.max(1, travelers) : each;
+}
+
+export function optionFrom(draft: CardDraft, id: string, travelers: number): Option {
   const timing = timingFrom(draft);
   const detail = draft.detail.trim();
   const sourceUrl = draft.sourceUrl.trim();
@@ -124,7 +140,7 @@ export function optionFrom(draft: CardDraft, id: string): Option {
     ...(sourceUrl ? { sourceUrl } : {}),
     cost: {
       kind: draft.perNight ? 'per-night' : 'fixed',
-      amount: Math.max(0, Number(draft.amount) || 0),
+      amount: partyAmount(draft, travelers),
     },
     ...(timing ? { timing } : {}),
   };
@@ -143,6 +159,7 @@ export function CardEditor({
   submitLabel,
   topSlot,
   busy,
+  travelers,
   onSave,
   onCancel,
 }: {
@@ -164,6 +181,8 @@ export function CardEditor({
   topSlot?: ReactNode;
   /** Something is about to rewrite these fields, so hold them still until it does. */
   busy?: boolean;
+  /** Party size, so a per-traveller price can show what it comes to. */
+  travelers: number;
   onSave: (draft: CardDraft) => void;
   onCancel: () => void;
 }) {
@@ -312,12 +331,27 @@ export function CardEditor({
               <select
                 id="card-pernight"
                 className="select"
-                value={draft.perNight ? 'night' : 'once'}
-                onChange={(e) => set('perNight', e.target.value === 'night')}
+                value={draft.perNight ? 'night' : draft.perTraveler ? 'traveler' : 'once'}
+                onChange={(e) => {
+                  const how = e.target.value;
+                  setDraft((d) => ({
+                    ...d,
+                    perNight: how === 'night',
+                    perTraveler: how === 'traveler',
+                  }));
+                }}
               >
                 <option value="once">In total</option>
                 <option value="night">Per night</option>
+                <option value="traveler">Per traveller</option>
               </select>
+              {draft.perTraveler && travelers > 1 ? (
+                // Spelled out rather than converted quietly. This is the number that goes into the
+                // budget, and a figure the traveller cannot see is one they cannot correct.
+                <div className="field__hint">
+                  {`× ${travelers} travellers = ${partyAmount(draft, travelers).toLocaleString()} in total`}
+                </div>
+              ) : null}
             </div>
           </div>
         )}
