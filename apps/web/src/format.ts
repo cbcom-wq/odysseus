@@ -42,22 +42,34 @@ const SYMBOL: Readonly<Record<string, string>> = {
   CHF: 'CHF ',
 };
 
+/** Rounded to the smallest unit anyone can actually pay, which kills float noise from splitting. */
+function toCents(amount: number): number {
+  return Math.round(amount * 100) / 100;
+}
+
 function withCurrency(magnitude: number, currency: string): string {
-  const digits = magnitude.toLocaleString('en-US');
+  // Cents only when there are any. Most prices are whole and read better without the trailing
+  // zeroes, but a figure that has cents must show them — rounding $652.03 to $652 on screen makes a
+  // split fare stop adding up to the fare, which is exactly the arithmetic the user is checking.
+  const cents = Math.round(magnitude * 100) % 100 !== 0;
+  const digits = magnitude.toLocaleString('en-US', {
+    minimumFractionDigits: cents ? 2 : 0,
+    maximumFractionDigits: cents ? 2 : 0,
+  });
   const symbol = SYMBOL[currency];
   return symbol === undefined ? `${digits} ${currency}` : `${symbol}${digits}`;
 }
 
 export function money(amount: number, currency = 'USD'): string {
-  const rounded = Math.round(amount);
-  return `${rounded < 0 ? '−' : ''}${withCurrency(Math.abs(rounded), currency)}`;
+  const value = toCents(amount);
+  return `${value < 0 ? '−' : ''}${withCurrency(Math.abs(value), currency)}`;
 }
 
 /** Signed money, for deltas. The sign is doing the work colour would otherwise do. */
 export function moneyDelta(amount: number, currency = 'USD'): string {
-  const rounded = Math.round(amount);
-  if (rounded === 0) return 'same cost';
-  return `${rounded > 0 ? '+' : '−'}${withCurrency(Math.abs(rounded), currency)}`;
+  const value = toCents(amount);
+  if (value === 0) return 'same cost';
+  return `${value > 0 ? '+' : '−'}${withCurrency(Math.abs(value), currency)}`;
 }
 
 export function duration(minutes: number): string {

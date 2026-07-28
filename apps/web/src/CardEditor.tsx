@@ -125,7 +125,10 @@ function timingFrom(draft: CardDraft): OptionTiming | undefined {
  */
 export function partyAmount(draft: CardDraft, travelers: number): number {
   const each = Math.max(0, Number(draft.amount) || 0);
-  return draft.perTraveler ? each * Math.max(1, travelers) : each;
+  if (!draft.perTraveler) return each;
+  // Back to cents afterwards: 1304.05 × 3 lands on 3912.1499999999996 in binary floating point, and
+  // storing that is how a price starts disagreeing with itself further down the trip.
+  return Math.round(each * Math.max(1, travelers) * 100) / 100;
 }
 
 export function optionFrom(draft: CardDraft, id: string, travelers: number): Option {
@@ -318,7 +321,9 @@ export function CardEditor({
                 id="card-amount"
                 type="number"
                 min="0"
-                step="1"
+                // Prices have cents. A whole-number step makes the browser reject $1,304.05 outright,
+                // which is a strange thing to tell someone copying a figure off a booking page.
+                step="0.01"
                 value={draft.amount}
                 onChange={(e) => set('amount', e.target.value)}
                 placeholder="0"
