@@ -1,5 +1,5 @@
 import { fareGroupPartners, nextFareGroupId, splitFare } from './fare-group.js';
-import type { Card, CardKind, Connection, Option, Segment, Trip } from './types.js';
+import type { Card, CardKind, Connection, Option, OptionTiming, Segment, Trip } from './types.js';
 
 /**
  * Pure edits to a trip.
@@ -297,7 +297,13 @@ export function removeOption(trip: Trip, cardId: string, optionId: string): Trip
 }
 
 export type ReturnLegOutcome =
-  | { readonly kind: 'linked'; readonly trip: Trip; readonly returnCardId: string }
+  | {
+      readonly kind: 'linked';
+      readonly trip: Trip;
+      readonly returnCardId: string;
+      /** False when the leg went in as a blank, which is when the traveller needs asking. */
+      readonly complete: boolean;
+    }
   /** The homeward leg already has a chosen flight. The fare was left whole and nothing was moved. */
   | { readonly kind: 'occupied' }
   | { readonly kind: 'not-applicable' };
@@ -324,7 +330,7 @@ export function linkReturnLeg(
   trip: Trip,
   outboundCardId: string,
   optionId: string,
-  opts: { readonly returnDate?: string } = {},
+  opts: { readonly returnDate?: string; readonly returnTiming?: OptionTiming } = {},
 ): ReturnLegOutcome {
   const outbound = trip.cards.find((c) => c.id === outboundCardId);
   if (!outbound || outbound.anchor.kind !== 'connection') return { kind: 'not-applicable' };
@@ -366,17 +372,23 @@ export function linkReturnLeg(
     ),
   };
 
+  // A checkout page states both legs in full, and when it does the return is a real option rather
+  // than a blank. Only fall back to the placeholder when the source genuinely did not say.
+  const timing = opts.returnTiming;
   const placeholder = {
     source: 'user' as const,
     title: 'Return flight',
-    detail:
-      opts.returnDate === undefined
+    detail: timing
+      ? `Returns ${timing.kind === 'journey' ? timing.departDate : (opts.returnDate ?? '')}`.trim()
+      : opts.returnDate === undefined
         ? 'Times not known yet'
         : `Returns ${opts.returnDate} — times not known yet`,
     cost: { kind: 'fixed' as const, amount: backHalf },
     fareGroupId,
+    ...(timing === undefined ? {} : { timing }),
     ...(fare.sourceUrl === undefined ? {} : { sourceUrl: fare.sourceUrl }),
   };
+  const complete = timing !== undefined;
 
   // Mirror the outbound. An unchosen fare's other half must not be selected either, or the trip
   // pays for a leg home it never picked.
@@ -396,7 +408,7 @@ export function linkReturnLeg(
             },
       ),
     };
-    return { kind: 'linked', trip: withOption, returnCardId: existing.id };
+    return { kind: 'linked', trip: withOption, returnCardId: existing.id, complete };
   }
 
   const cardId = nextCardId(halved);
@@ -410,7 +422,7 @@ export function linkReturnLeg(
     ...(active ? { selectedOptionId: option.id } : {}),
   };
 
-  return { kind: 'linked', trip: addCard(halved, card), returnCardId: cardId };
+  return { kind: 'linked', trip: addCard(halved, card), returnCardId: cardId, complete };
 }
 
 export function renameTrip(trip: Trip, name: string): Trip {

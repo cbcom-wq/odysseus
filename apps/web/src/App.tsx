@@ -1,5 +1,13 @@
 import { PRODUCT_NAME, SURFACE_NAME } from '@odysseus/brand';
-import type { Card, CardAnchor, CardKind, PlanningState, RankingPreset, Trip } from '@odysseus/domain';
+import type {
+  Card,
+  CardAnchor,
+  CardKind,
+  OptionTiming,
+  PlanningState,
+  RankingPreset,
+  Trip,
+} from '@odysseus/domain';
 import {
   addCard,
   addDays,
@@ -281,10 +289,15 @@ function Workspace({
           if (source?.roundTrip !== true) return;
           const linked = linkReturnLeg(next, cardId, opt.id, {
             ...(source.returnDate === null ? {} : { returnDate: source.returnDate }),
+            ...(returnTimingFrom(source) === undefined
+              ? {}
+              : { returnTiming: returnTimingFrom(source)! }),
           });
           if (linked.kind === 'linked') {
             next = linked.trip;
-            promptFor = linked.returnCardId;
+            // Only ask when the leg went in blank. A checkout page states both legs, and asking for
+            // what the traveller just pasted is worse than not asking at all.
+            if (!linked.complete) promptFor = linked.returnCardId;
           } else if (linked.kind === 'occupied') {
             occupied = true;
           }
@@ -674,6 +687,25 @@ function Workspace({
       ) : null}
     </div>
   );
+}
+
+/**
+ * The return leg's own timing, when the source gave it.
+ *
+ * A checkout page states both legs in full. Building a blank placeholder from that would throw away
+ * details the traveller can see on screen and then ask them to type it back in. A date is the one
+ * thing a journey cannot do without, so without it there is nothing to pin and the leg stays blank.
+ */
+function returnTimingFrom(fields: ExtractedFields): OptionTiming | undefined {
+  if (fields.returnDate === null || fields.returnDepartTime === null) return undefined;
+  return {
+    kind: 'journey',
+    departDate: fields.returnDate,
+    departTime: fields.returnDepartTime,
+    arriveTime: fields.returnArriveTime ?? fields.returnDepartTime,
+    nightsInTransit: fields.returnOvernight === true ? 1 : 0,
+    durationMinutes: fields.returnDurationMinutes ?? 120,
+  };
 }
 
 /**

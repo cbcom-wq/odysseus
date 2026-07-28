@@ -45,6 +45,17 @@ export interface ExtractedFields {
   /** The return date when the source shows one, even if it shows no times to go with it. */
   readonly returnDate: string | null;
   /**
+   * The return leg's own times, when the source gives them.
+   *
+   * A checkout page states both legs in full. Without somewhere to put the second one the import
+   * builds a blank placeholder and discards details it was handed — the return leg then pins
+   * nothing and the traveller re-types what was already on screen.
+   */
+  readonly returnDepartTime: string | null;
+  readonly returnArriveTime: string | null;
+  readonly returnOvernight: boolean | null;
+  readonly returnDurationMinutes: number | null;
+  /**
    * How sure the model is about *this option*. Drives whether the form warns the user to look twice.
    *
    * Per option rather than per screenshot: the first row of a list is usually crisp and the last one
@@ -95,6 +106,10 @@ export function buildExtractionSchema(allowedKinds: readonly CardKind[]) {
     endTime: z.string().nullable(),
     roundTrip: z.boolean().nullable(),
     returnDate: z.string().nullable(),
+    returnDepartTime: z.string().nullable(),
+    returnArriveTime: z.string().nullable(),
+    returnOvernight: z.boolean().nullable(),
+    returnDurationMinutes: z.number().nullable(),
     confidence: z.enum(['high', 'medium', 'low']).nullable(),
     warnings: z.array(z.string()).nullable(),
   });
@@ -142,6 +157,9 @@ export const FIELD_GUIDE = `
   and put the outbound's times in departTime/arriveTime. Say false for a genuine one-way.
 - returnDate: the return date if one is shown anywhere, formatted YYYY-MM-DD, even when no return
   times are given. Null if the source does not show it.
+- returnDepartTime / returnArriveTime / returnOvernight / returnDurationMinutes: the return leg's own
+  times, read the same way as the outbound ones. A checkout or confirmation page states both legs in
+  full — fill these in when it does, and leave them null when only the outbound is shown.
 - confidence: high when the source stated things plainly, low when you had to infer a lot.
 - warnings: short notes on anything assumed, ambiguous, or possibly stale. Empty when nothing
   needed assuming.

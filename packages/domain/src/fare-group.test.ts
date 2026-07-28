@@ -229,6 +229,7 @@ describe('importing a return fare that only showed the outbound', () => {
     const result = linkReturnLeg(outboundOnly(), 'card-out', 'out-fare', { returnDate: '2026-09-28' });
     expect(result.kind).toBe('linked');
     if (result.kind !== 'linked') return;
+    expect(result.complete).toBe(false);
 
     const back = result.trip.cards.find((c) => c.id === result.returnCardId)!;
     expect(back.anchor).toEqual({ kind: 'connection', connectionId: 'leg-2' });
@@ -248,6 +249,33 @@ describe('importing a return fare that only showed the outbound', () => {
     expect(
       detectCompatibilityConflicts(result.trip, schedule(result.trip)).map((c) => c.code),
     ).toContain('INCOMPLETE_LEG');
+  });
+
+  // A checkout page states both legs. Building a blank from that throws away what the traveller can
+  // already see and then asks them to type it back in.
+  it('uses the return leg times the source actually gave', () => {
+    const result = linkReturnLeg(outboundOnly(), 'card-out', 'out-fare', {
+      returnDate: '2026-09-28',
+      returnTiming: {
+        kind: 'journey',
+        departDate: '2026-09-28',
+        departTime: '21:30',
+        arriveTime: '09:35',
+        nightsInTransit: 1,
+        durationMinutes: 845,
+      },
+    });
+    expect(result.kind).toBe('linked');
+    if (result.kind !== 'linked') return;
+
+    expect(result.complete).toBe(true);
+    const back = result.trip.cards.find((c) => c.id === result.returnCardId)!;
+    expect(back.options[0]!.timing).toMatchObject({ departTime: '21:30', nightsInTransit: 1 });
+
+    // A real leg, so nothing is incomplete about it.
+    expect(
+      detectCompatibilityConflicts(result.trip, schedule(result.trip)).map((c) => c.code),
+    ).not.toContain('INCOMPLETE_LEG');
   });
 
   // Halving the fare here would understate the trip by $652, and selecting the placeholder over the

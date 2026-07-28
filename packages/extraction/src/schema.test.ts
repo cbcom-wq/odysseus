@@ -17,6 +17,10 @@ const FULL = {
   endTime: null,
   roundTrip: true,
   returnDate: '2026-09-28',
+  returnDepartTime: '21:30',
+  returnArriveTime: '09:35',
+  returnOvernight: true,
+  returnDurationMinutes: 845,
   confidence: 'high',
   warnings: [],
 };

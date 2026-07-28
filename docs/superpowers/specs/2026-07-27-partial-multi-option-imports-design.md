@@ -85,6 +85,19 @@ outbound #2 selects return placeholder #2.
 Option-level linking already expresses this. `linkReturnLeg` reads `selectedOptionId` and builds a
 single pair; it generalises to every round-trip option on the card.
 
+## 5. When the source states both legs
+
+Added after testing against `roundtrip_full_info_example.png`, a checkout page that gives the return
+leg in full — São Paulo to Kansas City, 21:30–09:35, overnight, 14h 5m — and prices the trip at
+$2,915.69 for the whole party.
+
+Building a blank placeholder from that would discard details visible on screen and then ask the
+traveller to type them back in. So `ExtractedFields` gains `returnDepartTime`, `returnArriveTime`,
+`returnOvernight` and `returnDurationMinutes`, and `linkReturnLeg` takes an optional
+`returnTiming`. With it the return leg is a real option: no `INCOMPLETE_LEG`, and no prompt.
+
+`ReturnLegOutcome` reports `complete` so the interface knows which of the two it got.
+
 ## Testing
 
 - A per-traveller price is multiplied by the traveller count and stored whole-party.
@@ -92,3 +105,4 @@ single pair; it generalises to every round-trip option on the card.
 - Imported options land unselected, and every one of them ranks against the same baseline.
 - `linkReturnLeg` builds one group and one placeholder per round-trip option.
 - Attributes absent from a source stay absent rather than becoming `false`.
+- A fully stated round trip produces a timed return leg and raises no `INCOMPLETE_LEG`.
