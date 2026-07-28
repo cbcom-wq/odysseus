@@ -4,7 +4,7 @@ import type { CardKind } from '@odysseus/domain';
 import { EXTRACTION_EFFORT, EXTRACTION_MODEL } from './client.js';
 import { RefusalError } from './errors.js';
 import { FIELD_GUIDE, buildExtractionSchema } from './schema.js';
-import type { ExtractedFields } from './schema.js';
+import type { ExtractedBatch } from './schema.js';
 
 /**
  * The one extractor.
@@ -39,7 +39,7 @@ export async function runStructuredCall(
   client: Anthropic,
   content: Anthropic.ContentBlockParam[],
   { allowedKinds, signal }: ExtractOptions,
-): Promise<ExtractedFields> {
+): Promise<ExtractedBatch> {
   const schema = buildExtractionSchema(allowedKinds);
 
   const response = await client.messages.parse(
@@ -65,14 +65,14 @@ export async function runStructuredCall(
   const parsed = response.parsed_output;
   if (!parsed) throw new Error('The response did not contain the expected fields.');
 
-  return parsed as ExtractedFields;
+  return parsed as ExtractedBatch;
 }
 
 export function extractFromText(
   client: Anthropic,
   text: string,
   options: ExtractOptions,
-): Promise<ExtractedFields> {
+): Promise<ExtractedBatch> {
   return runStructuredCall(
     client,
     [

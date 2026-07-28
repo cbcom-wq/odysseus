@@ -13,7 +13,7 @@ import {
   parseCliOutput,
 } from './cli-invocation.js';
 import { buildExtractionSchema } from './schema.js';
-import type { ExtractedFields } from './schema.js';
+import type { ExtractedBatch } from './schema.js';
 
 /**
  * Running the Claude Code CLI.
@@ -103,7 +103,7 @@ function runClaude(prompt: string, args: string[], cwd: string): Promise<string>
  */
 export async function extractWithCli(
   request: CliExtractionRequest,
-): Promise<ExtractedFields> {
+): Promise<ExtractedBatch> {
   const workdir = await mkdtemp(join(tmpdir(), 'odysseus-extract-'));
 
   try {
@@ -134,7 +134,7 @@ export async function extractWithCli(
     // stop agreeing, failing here is better than writing junk into someone's trip.
     return buildExtractionSchema(request.allowedKinds).parse(
       parseCliOutput(stdout),
-    ) as ExtractedFields;
+    ) as ExtractedBatch;
   } finally {
     await rm(workdir, { recursive: true, force: true }).catch(() => {
       // A leftover temp directory is not worth failing a paste over.

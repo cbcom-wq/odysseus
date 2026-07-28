@@ -46,8 +46,8 @@ describe('per-traveller pricing', () => {
 
   it('is part of the shape the model must answer', () => {
     const parsed = buildExtractionSchema(['flight']).parse({
-      ...extracted({ kind: 'flight', amount: 1304, perTraveler: true }),
+      options: [extracted({ kind: 'flight', amount: 1304, perTraveler: true })],
     });
-    expect(parsed.perTraveler).toBe(true);
+    expect(parsed.options[0]?.perTraveler).toBe(true);
   });
 });

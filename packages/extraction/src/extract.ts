@@ -4,7 +4,7 @@ import { extractFromText } from './extract-text.js';
 import { extractFromUrl } from './extract-url.js';
 import type { ScreenshotMediaType } from './extract-image.js';
 import type { ExtractRequestOptions, OptionExtractor } from './extractor.js';
-import type { ExtractedFields } from './schema.js';
+import type { ExtractedBatch } from './schema.js';
 
 /**
  * Reaching Claude over the API, with a key the user supplied.
@@ -24,7 +24,7 @@ export function createApiExtractor(apiKey: string | undefined): OptionExtractor 
     id: 'api',
     ready: apiKey !== undefined && apiKey.trim() !== '',
 
-    extract(input: PasteInput, options: ExtractRequestOptions): Promise<ExtractedFields> {
+    extract(input: PasteInput, options: ExtractRequestOptions): Promise<ExtractedBatch> {
       // Built per call rather than held: the key can change in Settings between one paste and the
       // next, and a stale client would keep using the old one.
       const client = createExtractionClient(apiKey);

@@ -3,7 +3,7 @@ import { EXTRACTION_MODEL } from './client.js';
 import { RefusalError, UnreachablePageError } from './errors.js';
 import type { ExtractOptions } from './extract-text.js';
 import { extractFromText } from './extract-text.js';
-import type { ExtractedFields } from './schema.js';
+import type { ExtractedBatch } from './schema.js';
 
 /**
  * Reading a link.
@@ -71,7 +71,7 @@ export async function extractFromUrl(
   client: Anthropic,
   url: string,
   options: ExtractOptions,
-): Promise<ExtractedFields> {
+): Promise<ExtractedBatch> {
   const page = await fetchPageText(client, url, options.signal);
 
   // Plenty of booking sites render their prices in JavaScript or turn away anything that is not a

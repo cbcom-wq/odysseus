@@ -23,32 +23,42 @@ const FULL = {
 
 describe('buildExtractionSchema', () => {
   it('accepts a fully populated result', () => {
-    const parsed = buildExtractionSchema(['flight', 'transport']).parse(FULL);
-    expect(parsed.title).toBe('KLM 602');
-    expect(parsed.overnight).toBe(true);
-    expect(parsed.durationMinutes).toBe(445);
+    const parsed = buildExtractionSchema(['flight', 'transport']).parse({ options: [FULL] });
+    expect(parsed.options[0]?.title).toBe('KLM 602');
+    expect(parsed.options[0]?.overnight).toBe(true);
+    expect(parsed.options[0]?.durationMinutes).toBe(445);
+  });
+
+  // Real screenshots hold several candidates. Returning one meant discarding the rest.
+  it('accepts several options from one source', () => {
+    const parsed = buildExtractionSchema(['flight']).parse({
+      options: [FULL, { ...FULL, title: 'American 900', amount: 1301 }],
+    });
+    expect(parsed.options).toHaveLength(2);
+    expect(parsed.options[1]?.amount).toBe(1301);
+  });
+
+  // Nothing found is a failure to report, not an empty list to quietly merge into the form.
+  it('rejects an empty list', () => {
+    expect(() => buildExtractionSchema(['flight']).parse({ options: [] })).toThrow();
   });
 
   it('accepts a result where the source said almost nothing', () => {
     // A hotel name and a rate is a legitimate option. Most sources are partial.
     const sparse = Object.fromEntries(Object.keys(FULL).map((k) => [k, null]));
     const parsed = buildExtractionSchema(['lodging']).parse({
-      ...sparse,
-      kind: 'lodging',
-      title: 'Hotel Lumiere',
-      amount: 180,
-      perNight: true,
+      options: [{ ...sparse, kind: 'lodging', title: 'Hotel Lumiere', amount: 180, perNight: true }],
     });
-    expect(parsed.title).toBe('Hotel Lumiere');
-    expect(parsed.departDate).toBeNull();
+    expect(parsed.options[0]?.title).toBe('Hotel Lumiere');
+    expect(parsed.options[0]?.departDate).toBeNull();
   });
 
   it('narrows kind to the kinds the slot accepts', () => {
     // Lodging cannot go on a connection, so the model must not be able to answer with it.
-    expect(() => buildExtractionSchema(['flight', 'transport']).parse(FULL)).not.toThrow();
     expect(() =>
-      buildExtractionSchema(['lodging', 'note']).parse(FULL),
-    ).toThrow();
+      buildExtractionSchema(['flight', 'transport']).parse({ options: [FULL] }),
+    ).not.toThrow();
+    expect(() => buildExtractionSchema(['lodging', 'note']).parse({ options: [FULL] })).toThrow();
   });
 
   it('rejects a kind that is not a card kind at all', () => {

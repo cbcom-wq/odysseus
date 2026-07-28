@@ -2,7 +2,7 @@ import type { CardKind } from '@odysseus/domain';
 import type { DraftPatch } from './draft.js';
 import { needsReviewNote, toDraftPatch } from './draft.js';
 import type { PasteInput } from './extract.js';
-import type { ExtractedFields } from './schema.js';
+import type { ExtractedBatch, ExtractedFields } from './schema.js';
 
 /**
  * Somewhere to send a paste and get fields back.
@@ -21,7 +21,7 @@ export interface OptionExtractor {
   readonly id: 'cli' | 'api';
   /** Whether this can run at all. False for the API backend with no key saved. */
   readonly ready: boolean;
-  extract(input: PasteInput, options: ExtractRequestOptions): Promise<ExtractedFields>;
+  extract(input: PasteInput, options: ExtractRequestOptions): Promise<ExtractedBatch>;
 }
 
 export interface ExtractRequestOptions {
@@ -30,10 +30,14 @@ export interface ExtractRequestOptions {
 }
 
 export interface ExtractionOutcome {
+  /** Every candidate the source offered, in the order it showed them. */
+  readonly options: readonly ExtractedFields[];
+  /** One per option, ready to spread over a draft. Aligned with `options`. */
+  readonly patches: readonly Partial<DraftPatch>[];
+  /** The first option — what the form under the paste box is filled with. */
   readonly fields: ExtractedFields;
-  /** Ready to spread over the editor's draft. */
   readonly patch: Partial<DraftPatch>;
-  /** Whether to tell the user to look twice before saving. */
+  /** Whether to tell the user to look twice before saving the first one. */
   readonly needsReview: boolean;
   readonly warnings: readonly string[];
 }
@@ -49,13 +53,18 @@ export async function runExtraction(
   input: PasteInput,
   options: ExtractRequestOptions,
 ): Promise<ExtractionOutcome> {
-  const fields = await extractor.extract(input, options);
+  const batch = await extractor.extract(input, options);
   const sourceUrl = input.kind === 'url' ? input.url : undefined;
 
+  const first = batch.options[0];
+  if (!first) throw new Error('Nothing could be read from that.');
+
   return {
-    fields,
-    patch: toDraftPatch(fields, sourceUrl),
-    needsReview: needsReviewNote(fields),
-    warnings: fields.warnings ?? [],
+    options: batch.options,
+    patches: batch.options.map((o) => toDraftPatch(o, sourceUrl)),
+    fields: first,
+    patch: toDraftPatch(first, sourceUrl),
+    needsReview: needsReviewNote(first),
+    warnings: first.warnings ?? [],
   };
 }

@@ -1,7 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { ExtractOptions } from './extract-text.js';
 import { runStructuredCall } from './extract-text.js';
-import type { ExtractedFields } from './schema.js';
+import type { ExtractedBatch } from './schema.js';
 
 /**
  * Reading a screenshot.
@@ -28,7 +28,7 @@ export function extractFromImage(
   client: Anthropic,
   image: { readonly base64: string; readonly mediaType: ScreenshotMediaType },
   options: ExtractOptions,
-): Promise<ExtractedFields> {
+): Promise<ExtractedBatch> {
   return runStructuredCall(
     client,
     [

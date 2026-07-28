@@ -311,21 +311,28 @@ export type ReturnLegOutcome =
  * timing** — which in this model means it pins nothing and floats, rather than inventing a date it
  * was never told. `INCOMPLETE_LEG` is what tells the traveller it is still a blank.
  *
- * If the homeward leg already has a flight the traveller chose, nothing happens. Halving the fare
- * would understate the trip by the other half, and selecting the placeholder over their existing
- * flight would throw away a decision they made. Saying so and leaving the fare whole is the only
- * answer that is not a wrong number or a silent overwrite.
+ * Takes the option explicitly rather than reading the selection, because a screenshot of a results
+ * list is several return fares at once. Each one gets its own group and its own placeholder on the
+ * homeward card, so choosing outbound #2 chooses return #2 — which is the whole reason the link
+ * lives on the option.
+ *
+ * If the homeward leg already has a flight the traveller *chose* — one that is not itself half of
+ * some fare — nothing happens. Halving the fare would understate the trip by the other half, and
+ * selecting the placeholder over their existing flight would throw away a decision they made.
  */
 export function linkReturnLeg(
   trip: Trip,
   outboundCardId: string,
+  optionId: string,
   opts: { readonly returnDate?: string } = {},
 ): ReturnLegOutcome {
   const outbound = trip.cards.find((c) => c.id === outboundCardId);
   if (!outbound || outbound.anchor.kind !== 'connection') return { kind: 'not-applicable' };
 
-  const fare = outbound.options.find((o) => o.id === outbound.selectedOptionId);
-  if (!fare || fare.cost.kind !== 'fixed') return { kind: 'not-applicable' };
+  const fare = outbound.options.find((o) => o.id === optionId);
+  if (!fare || fare.cost.kind !== 'fixed' || fare.fareGroupId !== undefined) {
+    return { kind: 'not-applicable' };
+  }
 
   const homeward = trip.connections.find((c) => c.toSegmentId === null);
   if (!homeward || homeward.id === outbound.anchor.connectionId) return { kind: 'not-applicable' };
@@ -336,7 +343,11 @@ export function linkReturnLeg(
       c.anchor.kind === 'connection' &&
       c.anchor.connectionId === homeward.id,
   );
-  if (existing?.selectedOptionId !== undefined) return { kind: 'occupied' };
+
+  // A placeholder this import put there is not a decision to protect — it is the other half of a
+  // sibling fare, and this one is entitled to sit beside it.
+  const chosen = existing?.options.find((o) => o.id === existing.selectedOptionId);
+  if (chosen !== undefined && chosen.fareGroupId === undefined) return { kind: 'occupied' };
 
   const fareGroupId = nextFareGroupId(trip);
   const [outHalf, backHalf] = splitFare(fare.cost.amount, 2) as [number, number];
@@ -367,13 +378,25 @@ export function linkReturnLeg(
     ...(fare.sourceUrl === undefined ? {} : { sourceUrl: fare.sourceUrl }),
   };
 
+  // Mirror the outbound. An unchosen fare's other half must not be selected either, or the trip
+  // pays for a leg home it never picked.
+  const active = outbound.selectedOptionId === optionId;
+
   if (existing) {
     const option: Option = { id: nextOptionId(existing), ...placeholder };
-    return {
-      kind: 'linked',
-      trip: addOption(halved, existing.id, option),
-      returnCardId: existing.id,
+    const withOption: Trip = {
+      ...halved,
+      cards: halved.cards.map((c) =>
+        c.id !== existing.id
+          ? c
+          : {
+              ...c,
+              options: [...c.options, option],
+              ...(active ? { selectedOptionId: option.id } : {}),
+            },
+      ),
     };
+    return { kind: 'linked', trip: withOption, returnCardId: existing.id };
   }
 
   const cardId = nextCardId(halved);
@@ -384,7 +407,7 @@ export function linkReturnLeg(
     state: 'exploring',
     anchor: { kind: 'connection', connectionId: homeward.id },
     options: [option],
-    selectedOptionId: option.id,
+    ...(active ? { selectedOptionId: option.id } : {}),
   };
 
   return { kind: 'linked', trip: addCard(halved, card), returnCardId: cardId };

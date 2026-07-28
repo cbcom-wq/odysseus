@@ -72,6 +72,7 @@ export function PasteImportBox({
   allowedKinds,
   extractor,
   onExtracted,
+  onExtrasChange,
   onBusyChange,
   onOpenSettings,
 }: {
@@ -83,12 +84,20 @@ export function PasteImportBox({
    * to express and the user should not have to restate.
    */
   onExtracted: (patch: Partial<DraftPatch>, fields: ExtractedFields) => void;
+  /**
+   * The candidates beyond the first, which ride along onto the same card.
+   *
+   * Fires again whenever one is dropped, and separately from `onExtracted` so that changing the
+   * list does not reset the form the user is part-way through checking.
+   */
+  onExtrasChange: (extras: readonly ExtractedFields[]) => void;
   /** Lets the form disable itself while a paste is being read. */
   onBusyChange: (busy: boolean) => void;
   onOpenSettings: () => void;
 }) {
   const [status, setStatus] = useState<Status>({ state: 'idle' });
   const [typed, setTyped] = useState('');
+  const [extras, setExtras] = useState<readonly ExtractedFields[]>([]);
   const abort = useRef<AbortController | null>(null);
   const working = status.state === 'working';
 
@@ -97,6 +106,8 @@ export function PasteImportBox({
     abort.current = controller;
     onBusyChange(true);
     setStatus({ state: 'working', kind: input.kind });
+    setExtras([]);
+    onExtrasChange([]);
 
     try {
       const outcome = await runExtraction(extractor, input, {
@@ -105,6 +116,9 @@ export function PasteImportBox({
       });
 
       onExtracted(outcome.patch, outcome.fields);
+      const rest = outcome.options.slice(1);
+      setExtras(rest);
+      onExtrasChange(rest);
       setTyped('');
       finish({
         state: 'done',
@@ -118,6 +132,12 @@ export function PasteImportBox({
       // A cancel is the user's own doing; drop back to idle rather than reporting it at them.
       finish(failure === 'cancelled' ? { state: 'idle' } : { state: 'failed', message });
     }
+  };
+
+  const dropExtra = (at: number) => {
+    const rest = extras.filter((_, i) => i !== at);
+    setExtras(rest);
+    onExtrasChange(rest);
   };
 
   function finish(next: Status) {
@@ -224,6 +244,35 @@ export function PasteImportBox({
           : null}
         {status.state === 'failed' ? status.message : null}
       </div>
+
+      {extras.length > 0 ? (
+        <div className="paste__extras">
+          <div className="field__hint">
+            {`${extras.length + 1} options found. The form below is the first; the ` +
+              `${extras.length === 1 ? 'other one rides' : `other ${extras.length} ride`} along on ` +
+              'the same card so you can compare them.'}
+          </div>
+          <ul className="paste__list">
+            {extras.map((extra, at) => (
+              <li key={`${extra.title ?? 'option'}-${at}`}>
+                <span>
+                  {extra.title ?? 'Untitled'}
+                  {extra.amount === null ? '' : ` · ${extra.amount.toLocaleString()}`}
+                  {extra.confidence === 'low' ? ' · partly unreadable' : ''}
+                </span>
+                <button
+                  type="button"
+                  className="linkish"
+                  onClick={() => dropExtra(at)}
+                  aria-label={`Do not add ${extra.title ?? 'this option'}`}
+                >
+                  Drop
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

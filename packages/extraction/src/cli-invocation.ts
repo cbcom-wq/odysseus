@@ -42,7 +42,7 @@ export function buildJsonSchema(allowedKinds: readonly CardKind[]): unknown {
   const nullableNumber = { type: ['number', 'null'] };
   const nullableBoolean = { type: ['boolean', 'null'] };
 
-  return {
+  const option = {
     type: 'object',
     additionalProperties: false,
     properties: {
@@ -85,6 +85,13 @@ export function buildJsonSchema(allowedKinds: readonly CardKind[]): unknown {
       'confidence',
       'warnings',
     ],
+  };
+
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: { options: { type: 'array', minItems: 1, items: option } },
+    required: ['options'],
   };
 }
 

@@ -972,6 +972,30 @@ button {
   color: var(--ink-3);
 }
 
+/* The candidates riding along with the one in the form. Listed so they can be dropped first. */
+.paste__extras {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.paste__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.paste__list li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
 /* A button that reads as a link, for offers made inside a sentence. */
 .linkish {
   border: 0;

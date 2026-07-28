@@ -44,10 +44,27 @@ export interface ExtractedFields {
   readonly roundTrip: boolean | null;
   /** The return date when the source shows one, even if it shows no times to go with it. */
   readonly returnDate: string | null;
-  /** How sure the model is overall. Drives whether the form warns the user to look twice. */
+  /**
+   * How sure the model is about *this option*. Drives whether the form warns the user to look twice.
+   *
+   * Per option rather than per screenshot: the first row of a list is usually crisp and the last one
+   * is often clipped by the edge of the image, and one figure for the batch either over-trusts the
+   * tail or under-trusts the head.
+   */
   readonly confidence: 'high' | 'medium' | 'low' | null;
   /** Short notes about anything assumed or ambiguous, e.g. "no year was printed; assumed 2026". */
   readonly warnings: readonly string[] | null;
+}
+
+/**
+ * Everything a single source offered.
+ *
+ * Real screenshots hold several candidates — three flights, five fare bundles, three hotels — and
+ * returning one meant discarding the rest into a prose warning where nothing could act on them.
+ * They are alternatives for the same slot, which is exactly what a Card full of Options is.
+ */
+export interface ExtractedBatch {
+  readonly options: readonly ExtractedFields[];
 }
 
 /**
@@ -62,7 +79,7 @@ export function buildExtractionSchema(allowedKinds: readonly CardKind[]) {
     throw new Error('Extraction needs at least one allowed card kind.');
   }
 
-  return z.object({
+  const option = z.object({
     kind: z.enum(allowedKinds as [CardKind, ...CardKind[]]).nullable(),
     title: z.string().nullable(),
     detail: z.string().nullable(),
@@ -81,6 +98,15 @@ export function buildExtractionSchema(allowedKinds: readonly CardKind[]) {
     confidence: z.enum(['high', 'medium', 'low']).nullable(),
     warnings: z.array(z.string()).nullable(),
   });
+
+  // At least one: a source that yielded nothing is a failure to report, not an empty list to merge
+  // into the form and leave the user wondering what happened.
+  return z.object({ options: z.array(option).min(1) });
+}
+
+/** The shape of one option on its own, for callers validating a single result. */
+export function buildOptionSchema(allowedKinds: readonly CardKind[]) {
+  return buildExtractionSchema(allowedKinds).shape.options.element;
 }
 
 /**
@@ -102,7 +128,10 @@ export const FIELD_GUIDE = `
   print the party total in smaller type next to it — report the headline number in amount and say
   true here. If the two figures do not reconcile, still report both: the headline in amount, and what
   the source claimed the total was, in warnings.
-- departDate: the date of departure, formatted YYYY-MM-DD. Only if a date is actually shown.
+- departDate: the date of departure, formatted YYYY-MM-DD. Only if a date is actually shown. Listings
+  routinely print a day and month with no year — "Wed, Mar 3". Resolve that to its next occurrence
+  and say so in warnings. A missing year is recoverable from context in a way a missing price is not,
+  and a journey with no date pins nothing, so dropping it costs the traveller the whole comparison.
 - departTime / arriveTime: local wall-clock times at each end, formatted HH:mm on a 24-hour clock.
 - overnight: true only when arrival falls on the calendar day after departure, e.g. a red-eye or a
   night train. False for a same-day journey.
@@ -117,6 +146,18 @@ export const FIELD_GUIDE = `
 - warnings: short notes on anything assumed, ambiguous, or possibly stale. Empty when nothing
   needed assuming.
 
-Use null for anything the source does not state. Do not guess a price, a date, or a time that is
-not there. If a year is missing from a date, say so in warnings.
+Return every distinct option the source offers, in the order it shows them. A results list with
+three flights is three options; a page of five fare bundles is five. They are alternatives for the
+same decision, so they belong together.
+
+- Facts printed once for the whole page apply to every option. A fare comparison usually states the
+  flight's times, route, carrier and duration once at the top and then lists prices — copy those
+  shared values into every option rather than leaving them null.
+- Never report an attribute the source does not show for that option. If one row says "free
+  cancellation" and another says nothing, the second one is null, not false. Absent is not the same
+  as no.
+- If a row is cut off by the edge of the image, either leave it out or report it with low confidence
+  and say so in its warnings. Do not complete it from the rows above.
+
+Use null for anything the source does not state. Do not guess a price or a time that is not there.
 `.trim();

@@ -24,6 +24,7 @@ import {
   updateOption,
 } from '@odysseus/domain';
 import type { ExtractedFields } from '@odysseus/extraction';
+import { toDraftPatch } from '@odysseus/extraction';
 import { useEffect, useMemo, useState } from 'react';
 import type { CardDraft, DayChoice } from './CardEditor.js';
 import { CardEditor, draftFromOption, emptyDraft, optionFrom } from './CardEditor.js';
@@ -131,6 +132,8 @@ function Workspace({
   // decides whether saving builds a second leg, and the form has nowhere to put that.
   const [pastedFields, setPastedFields] = useState<ExtractedFields | null>(null);
   const [returnPrompt, setReturnPrompt] = useState<string | null>(null);
+  /** Candidates beyond the first, which land on the same card as alternatives to compare. */
+  const [extras, setExtras] = useState<readonly ExtractedFields[]>([]);
   const [draftVersion, setDraftVersion] = useState(0);
   const [reading, setReading] = useState(false);
 
@@ -141,6 +144,7 @@ function Workspace({
     setEditor(next);
     setPasted(null);
     setPastedFields(null);
+    setExtras([]);
     setReading(false);
     setDraftVersion((n) => n + 1);
   };
@@ -242,32 +246,57 @@ function Workspace({
         editor.anchor.kind === 'segment-day'
           ? { ...editor.anchor, dayOffset: Math.max(0, Number(draft.dayOffset) || 0) }
           : editor.anchor;
+      // A screenshot of a results list is several candidates for one slot, which is exactly what a
+      // card full of options is. They land together and nothing is chosen: picking for the user
+      // would decide the thing they pasted three flights in order to decide themselves.
+      const extraOptions = extras.map((fields, i) =>
+        optionFrom(
+          { ...emptyDraft(draft.kind), ...toDraftPatch(fields), dayOffset: draft.dayOffset },
+          `${cardId}-opt-${i + 2}`,
+          trip.travelers,
+        ),
+      );
+
+      const options = [option, ...extraOptions];
       const card: Card = {
         id: cardId,
         kind: draft.kind,
         state: 'exploring',
         anchor,
-        options: [option],
-        selectedOptionId: option.id,
+        options,
+        ...(options.length === 1 ? { selectedOptionId: option.id } : {}),
       };
 
       // A flight listing quotes the return price against the outbound times. Saving it as one card
       // would leave the trip holding a return fare with no return, so the second leg is built here
-      // rather than waiting for the traveller to notice.
+      // rather than waiting for the traveller to notice. Every round-trip candidate gets its own.
       let next = addCard(trip, card);
-      if (pastedFields?.roundTrip === true && card.kind === 'flight') {
-        const linked = linkReturnLeg(next, cardId, {
-          ...(pastedFields.returnDate === null ? {} : { returnDate: pastedFields.returnDate }),
+      let promptFor: string | null = null;
+      let occupied = false;
+
+      if (card.kind === 'flight') {
+        const sources = [pastedFields, ...extras];
+        options.forEach((opt, i) => {
+          const source = sources[i];
+          if (source?.roundTrip !== true) return;
+          const linked = linkReturnLeg(next, cardId, opt.id, {
+            ...(source.returnDate === null ? {} : { returnDate: source.returnDate }),
+          });
+          if (linked.kind === 'linked') {
+            next = linked.trip;
+            promptFor = linked.returnCardId;
+          } else if (linked.kind === 'occupied') {
+            occupied = true;
+          }
         });
-        if (linked.kind === 'linked') {
-          next = linked.trip;
-          setReturnPrompt(linked.returnCardId);
-        } else if (linked.kind === 'occupied') {
-          setNotice(
-            'That looked like a return fare, but the leg home already has a flight. The whole ' +
-              'price stayed on this one.',
-          );
-        }
+      }
+
+      if (promptFor !== null) setReturnPrompt(promptFor);
+      else if (occupied) {
+        setNotice(
+          'That looked like a return fare, but the leg home already has a flight. The whole ' +
+            'price stayed on this one.',
+        );
       }
 
       update(next);
@@ -621,6 +650,7 @@ function Workspace({
                   setPastedFields(fields);
                   setDraftVersion((n) => n + 1);
                 }}
+                onExtrasChange={setExtras}
               />
             ) : null
           }

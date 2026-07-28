@@ -46,37 +46,38 @@ describe('buildCliArgs', () => {
   });
 });
 
+/** The schema wraps the option shape in an array, so the assertions below are about an item. */
+function itemOf(schema: unknown): {
+  properties: Record<string, { type: string[]; pattern?: string; enum?: unknown[] }>;
+  required: string[];
+} {
+  return (schema as { properties: { options: { items: never } } }).properties.options.items;
+}
+
 describe('buildJsonSchema', () => {
   it('offers only the kinds the slot accepts', () => {
-    const schema = buildJsonSchema(['flight', 'transport']) as {
-      properties: { kind: { enum: unknown[] } };
-    };
-    expect(schema.properties.kind.enum).toEqual(['flight', 'transport', null]);
+    const item = itemOf(buildJsonSchema(['flight', 'transport']));
+    expect(item.properties['kind']!.enum).toEqual(['flight', 'transport', null]);
   });
 
   it('pins times to HH:mm', () => {
     // Asked for a time, the CLI returned "2026-09-23T19:45:00" in testing. The form binds these to
     // a time input, which shows nothing at all for a full timestamp.
-    const schema = buildJsonSchema(['flight']) as {
-      properties: Record<string, { pattern?: string }>;
-    };
+    const item = itemOf(buildJsonSchema(['flight']));
 
     for (const field of ['departTime', 'arriveTime', 'startTime', 'endTime']) {
-      expect(schema.properties[field]!.pattern).toBe('^\\d{2}:\\d{2}$');
+      expect(item.properties[field]!.pattern).toBe('^\\d{2}:\\d{2}$');
     }
-    expect(schema.properties['departDate']!.pattern).toBe('^\\d{4}-\\d{2}-\\d{2}$');
+    expect(item.properties['departDate']!.pattern).toBe('^\\d{4}-\\d{2}-\\d{2}$');
   });
 
   it('requires every field, so absence is stated rather than omitted', () => {
-    const schema = buildJsonSchema(['flight']) as { required: string[]; properties: object };
-    expect(schema.required.sort()).toEqual(Object.keys(schema.properties).sort());
+    const item = itemOf(buildJsonSchema(['flight']));
+    expect(item.required.sort()).toEqual(Object.keys(item.properties).sort());
   });
 
   it('allows null everywhere a source might be silent', () => {
-    const schema = buildJsonSchema(['flight']) as {
-      properties: Record<string, { type: string[] }>;
-    };
-    for (const [name, spec] of Object.entries(schema.properties)) {
+    for (const [name, spec] of Object.entries(itemOf(buildJsonSchema(['flight'])).properties)) {
       expect(spec.type, `${name} should accept null`).toContain('null');
     }
   });

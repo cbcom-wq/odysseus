@@ -226,7 +226,7 @@ describe('importing a return fare that only showed the outbound', () => {
   }
 
   it('builds a linked, timing-less second leg with half the fare', () => {
-    const result = linkReturnLeg(outboundOnly(), 'card-out', { returnDate: '2026-09-28' });
+    const result = linkReturnLeg(outboundOnly(), 'card-out', 'out-fare', { returnDate: '2026-09-28' });
     expect(result.kind).toBe('linked');
     if (result.kind !== 'linked') return;
 
@@ -253,8 +253,65 @@ describe('importing a return fare that only showed the outbound', () => {
   // Halving the fare here would understate the trip by $652, and selecting the placeholder over the
   // flight they already chose would throw that decision away.
   it('leaves the fare whole when the homeward leg already has a chosen flight', () => {
-    const t = roundTrip();
-    expect(linkReturnLeg(t, 'card-out', {}).kind).toBe('occupied');
+    const t = outboundOnly();
+    const chosen: Trip = {
+      ...t,
+      cards: [
+        ...t.cards,
+        card('card-home', 'flight', { kind: 'connection', connectionId: 'leg-2' }, [
+          leg('home-1', { date: '2026-09-28', cost: 500 }),
+        ]),
+      ],
+    };
+    expect(linkReturnLeg(chosen, 'card-out', 'out-fare', {}).kind).toBe('occupied');
+  });
+
+  /**
+   * A results list is several return fares at once. Each needs its own group and its own placeholder,
+   * so that choosing outbound #2 chooses return #2 — the reason the link lives on the option.
+   */
+  it('gives every round-trip option its own fare group and placeholder', () => {
+    const base = outboundOnly();
+    const many: Trip = {
+      ...base,
+      cards: base.cards.map((c) => {
+        if (c.id !== 'card-out') return c;
+        // Nothing chosen: three candidates for one slot, none decided.
+        const { selectedOptionId: _none, ...rest } = c;
+        return {
+          ...rest,
+          options: [
+            c.options[0]!,
+            leg('out-2', { date: '2026-09-23', cost: 1301 }),
+            leg('out-3', { date: '2026-09-23', cost: 1311 }),
+          ],
+        };
+      }),
+    };
+
+    let next = many;
+    for (const id of ['out-fare', 'out-2', 'out-3']) {
+      const result = linkReturnLeg(next, 'card-out', id, {});
+      expect(result.kind).toBe('linked');
+      if (result.kind !== 'linked') return;
+      next = result.trip;
+    }
+
+    // One homeward card, three placeholders, three distinct groups.
+    const back = next.cards.filter((c) => c.id !== 'card-out');
+    expect(back).toHaveLength(1);
+    expect(back[0]!.options).toHaveLength(3);
+    expect(new Set(back[0]!.options.map((o) => o.fareGroupId)).size).toBe(3);
+
+    // Nothing was chosen on either leg, so nothing is being paid for yet.
+    expect(back[0]!.selectedOptionId).toBeUndefined();
+    expect(computeBudget(next, schedule(next)).total).toBe(0);
+
+    // Choosing the second outbound fare brings exactly its own partner with it.
+    const picked = selectOptionInTrip(next, 'card-out', 'out-2');
+    expect(picked.ok).toBe(true);
+    if (!picked.ok) return;
+    expect(computeBudget(picked.trip, schedule(picked.trip)).total).toBe(1301);
   });
 });
 
