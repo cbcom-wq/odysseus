@@ -48,6 +48,7 @@ export function CardDetail({
   onRemoveCard,
   onFindOptions,
   searchingSlotId,
+  onBack,
 }: {
   trip: Trip;
   schedule: Schedule;
@@ -64,6 +65,7 @@ export function CardDetail({
   /** Absent in the browser build, where nothing can run a search. */
   onFindOptions?: (card: Card) => void;
   searchingSlotId: string | null;
+  onBack: () => void;
 }) {
   const ranked = rankOptions(trip, card.id);
   const current = card.options.find((o) => o.id === card.selectedOptionId);
@@ -71,6 +73,9 @@ export function CardDetail({
   return (
     <>
       <div className="panel__head">
+        <button type="button" className="panel__back" onClick={onBack}>
+          ← All {card.kind === 'lodging' ? 'lodging' : `${card.kind}s`}
+        </button>
         <span className="label">{card.kind}</span>
         <h2 className="panel__title">{current?.title ?? 'Nothing chosen yet'}</h2>
         {current ? (

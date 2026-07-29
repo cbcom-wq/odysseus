@@ -1,23 +1,51 @@
 import type {
   Card,
+  CardAnchor,
+  CardKind,
   PlacedCard,
   PlanningState,
   RankingPreset,
   Schedule,
   Trip,
+  TripSlots,
 } from '@odysseus/domain';
 import { CardDetail } from './CardDetail.js';
+import type { PanelTab } from './SlotList.js';
+import { SlotList, TABS } from './SlotList.js';
+import type { SlotSearchRequest } from './slot-search.js';
 
-/** The primary surface of the workspace. */
+/**
+ * The primary surface of the workspace.
+ *
+ * Always present and always tabbed. It used to show one line telling the traveller to pick
+ * something, on trips where there was nothing to pick.
+ */
 export function OptionsPanel({
   trip,
+  slots,
+  tab,
+  onChangeTab,
   selectedCardId,
+  conflictedCardIds,
+  onSelectCard,
+  onAddToSlot,
+  onFindForSlot,
+  canSearch,
   ...detail
 }: {
   trip: Trip;
   schedule: Schedule;
   placed: readonly PlacedCard[];
+  slots: TripSlots;
+  tab: PanelTab;
+  onChangeTab: (tab: PanelTab) => void;
   selectedCardId: string | undefined;
+  conflictedCardIds: ReadonlySet<string>;
+  onSelectCard: (id: string) => void;
+  onAddToSlot: (anchor: CardAnchor, kinds: readonly CardKind[]) => void;
+  onFindForSlot: (request: SlotSearchRequest) => void;
+  canSearch: boolean;
+  onBack: () => void;
   onChooseOption: (cardId: string, optionId: string) => void;
   onChangeState: (cardId: string, state: PlanningState) => void;
   onChangeRanking: (preset: RankingPreset) => void;
@@ -33,12 +61,37 @@ export function OptionsPanel({
 
   return (
     <aside className="panel">
+      <div className="panel__tabs" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className="panel__tab"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => onChangeTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {card ? (
         <CardDetail trip={trip} card={card} {...detail} />
       ) : (
-        <div className="panel__empty">
-          Pick anything in the trip to see what else it could be, and what each choice would do to
-          the days around it.
+        <div className="panel__scroll">
+          <SlotList
+            trip={trip}
+            slots={slots}
+            tab={tab}
+            selectedCardId={selectedCardId}
+            conflictedCardIds={conflictedCardIds}
+            onSelectCard={onSelectCard}
+            onAdd={onAddToSlot}
+            onFind={onFindForSlot}
+            searchingSlotId={detail.searchingSlotId}
+            canSearch={canSearch}
+          />
         </div>
       )}
     </aside>

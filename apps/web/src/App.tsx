@@ -28,6 +28,7 @@ import {
   selectOptionInTrip,
   splitStay,
   transitionCardInTrip,
+  tripSlots,
   updateOption,
 } from '@odysseus/domain';
 import type { ExtractedFields } from '@odysseus/extraction';
@@ -41,6 +42,8 @@ import { OptionsPanel } from './OptionsPanel.js';
 import { PasteImportBox } from './PasteImportBox.js';
 import { SaveStatus } from './SaveStatus.js';
 import { SettingsDialog } from './SettingsDialog.js';
+import type { PanelTab } from './SlotList.js';
+import { tabForKind } from './SlotList.js';
 import { StructureView } from './StructureView.js';
 import { dateRange, money, shortDate, tripSubtitle } from './format.js';
 import type { LinkedImport } from './import-fares.js';
@@ -129,6 +132,7 @@ function Workspace({
 
   const [view, setView] = useState<View>('days');
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>();
+  const [tab, setTab] = useState<PanelTab>('flights');
   const [creating, setCreating] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -224,15 +228,28 @@ function Workspace({
 
   // Everything below is derived. No planning state is stored twice, so the two views cannot
   // disagree and the budget cannot go stale.
-  const { schedule, budget, placed, conflicts } = useMemo(() => {
+  const { schedule, budget, placed, conflicts, slots } = useMemo(() => {
     const schedule = runSchedule(trip);
     return {
       schedule,
       budget: computeBudget(trip, schedule),
       placed: placeCards(trip, schedule),
       conflicts: [...schedule.conflicts, ...detectCompatibilityConflicts(trip, schedule)],
+      slots: tripSlots(trip, schedule),
     };
   }, [trip]);
+
+  /**
+   * Selecting a card anywhere puts the panel on its tab.
+   *
+   * One card has one home, so a flight clicked in the day grid always opens under Flights — even
+   * though its leg is also listed under Transport.
+   */
+  const selectCard = (id: string) => {
+    setSelectedCardId(id);
+    const card = trip.cards.find((c) => c.id === id);
+    if (card) setTab(tabForKind(card.kind));
+  };
 
   /** A leg that exists but has no times yet. Nothing to correct, everything still to fill in. */
   const editingPlaceholder =
@@ -272,7 +289,7 @@ function Workspace({
     const after = splitStay(trip, segmentId, fromNight);
     if (after === trip) return;
     update(after);
-    setSelectedCardId(after.cards[after.cards.length - 1]!.id);
+    selectCard(after.cards[after.cards.length - 1]!.id);
   };
 
   /**
@@ -636,7 +653,7 @@ function Workspace({
               placed={placed}
               selectedCardId={selectedCardId}
               conflictedCardIds={conflictedCardIds}
-              onSelectCard={setSelectedCardId}
+              onSelectCard={selectCard}
               onAdd={(anchor) =>
                 openEditor({ mode: 'new-card', anchor, kinds: kindsForAnchor(anchor.kind) })
               }
@@ -650,7 +667,7 @@ function Workspace({
               selectedCardId={selectedCardId}
               conflictedCardIds={conflictedCardIds}
               conflictedSegmentIds={conflictedSegmentIds}
-              onSelectCard={setSelectedCardId}
+              onSelectCard={selectCard}
               onChangeDuration={changeDuration}
               onAdd={(anchor, kinds) => openEditor({ mode: 'new-card', anchor, kinds })}
               onAddStop={(name, at) => applyEdit(addSegment(trip, name, at), 'Added a stop.')}
@@ -668,7 +685,20 @@ function Workspace({
         trip={trip}
         schedule={schedule}
         placed={placed}
+        slots={slots}
+        tab={tab}
+        onChangeTab={(next) => {
+          setTab(next);
+          // Switching tabs means going to that tab's list, not carrying a detail view across.
+          setSelectedCardId(undefined);
+        }}
         selectedCardId={selectedCardId}
+        conflictedCardIds={conflictedCardIds}
+        onSelectCard={selectCard}
+        onAddToSlot={(anchor, kinds) => openEditor({ mode: 'new-card', anchor, kinds })}
+        onFindForSlot={(request) => void findForSlot(request)}
+        canSearch={discovery.available}
+        onBack={() => setSelectedCardId(undefined)}
         onChooseOption={chooseOption}
         onChangeState={changeState}
         onChangeRanking={changeRanking}
