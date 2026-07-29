@@ -20,9 +20,14 @@ import { useMemo, useState } from 'react';
 export interface Discovery {
   /** False in the browser build, where the button should not exist. */
   readonly available: boolean;
-  /** The card being searched right now, or null. One search at a time. */
-  readonly searchingCardId: string | null;
-  readonly find: (trip: Trip, card: Card) => Promise<readonly Option[]>;
+  /**
+   * What is being searched right now, or null. One search at a time.
+   *
+   * A key rather than a card id: a slot with nothing on it can start a search, and there is no card
+   * to name it by until the results come back.
+   */
+  readonly searchingSlotId: string | null;
+  readonly find: (trip: Trip, card: Card, key: string) => Promise<readonly Option[]>;
 }
 
 /** Nulls become absences at the bridge: the request travels as plain optional fields. */
@@ -46,7 +51,7 @@ function toBridgeRequest(query: SearchQuery) {
 }
 
 export function useDiscovery(): Discovery {
-  const [searchingCardId, setSearchingCardId] = useState<string | null>(null);
+  const [searchingSlotId, setSearchingSlotId] = useState<string | null>(null);
 
   const provider = useMemo(() => {
     const bridge = findDesktopBridge();
@@ -59,15 +64,15 @@ export function useDiscovery(): Discovery {
     });
   }, []);
 
-  const find = async (trip: Trip, card: Card): Promise<readonly Option[]> => {
+  const find = async (trip: Trip, card: Card, key: string): Promise<readonly Option[]> => {
     if (!provider) throw new Error('Searching needs the desktop app.');
-    setSearchingCardId(card.id);
+    setSearchingSlotId(key);
     try {
       return await provider.fetch(trip, card);
     } finally {
-      setSearchingCardId(null);
+      setSearchingSlotId(null);
     }
   };
 
-  return { available: provider !== null, searchingCardId, find };
+  return { available: provider !== null, searchingSlotId, find };
 }

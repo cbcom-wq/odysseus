@@ -45,7 +45,8 @@ import { StructureView } from './StructureView.js';
 import { dateRange, money, shortDate, tripSubtitle } from './format.js';
 import type { LinkedImport } from './import-fares.js';
 import { linkImportedFares } from './import-fares.js';
-import { applyDiscovery } from './discover.js';
+import type { SlotSearchRequest } from './slot-search.js';
+import { landSearchResults, slotSearchTarget } from './slot-search.js';
 import { useDiscovery } from './useDiscovery.js';
 import { useExtractor } from './useExtractor.js';
 import { useSettingsStore } from './useSettingsStore.js';
@@ -157,11 +158,10 @@ function Workspace({
   const tripNow = useRef(trip);
   tripNow.current = trip;
 
-  const findOptions = async (cardId: string) => {
-    const card = trip.cards.find((c) => c.id === cardId);
-    if (!card) return;
+  const findForSlot = async (request: SlotSearchRequest) => {
+    const target = slotSearchTarget(request);
     try {
-      const found = await discovery.find(trip, card);
+      const found = await discovery.find(trip, target.card, target.key);
       if (found.length === 0) {
         setNotice(
           "Claude searched but didn't find anything it could stand behind. Try adding what you " +
@@ -171,15 +171,15 @@ function Workspace({
       }
       // Minutes have passed and the app stayed live. The slot these were found for may not be
       // there any more, and "Found 0 options" would explain none of that.
-      if (!tripNow.current.cards.some((c) => c.id === cardId)) {
+      const outcome = landSearchResults(tripNow.current, target, found);
+      if (!outcome) {
         setNotice(
-          `Claude found ${found.length} option${found.length === 1 ? '' : 's'}, but the card they ` +
+          `Claude found ${found.length} option${found.length === 1 ? '' : 's'}, but the slot they ` +
             'were for is gone. Nothing was added.',
         );
         return;
       }
 
-      const outcome = applyDiscovery(tripNow.current, cardId, found);
       update(outcome.trip);
       reportLinking(outcome);
       setNotice(
@@ -680,8 +680,18 @@ function Workspace({
           update(removeCard(trip, cardId));
           setSelectedCardId(undefined);
         }}
-        {...(discovery.available ? { onFindOptions: (cardId: string) => void findOptions(cardId) } : {})}
-        searchingCardId={discovery.searchingCardId}
+        {...(discovery.available
+          ? {
+              onFindOptions: (card: Card) =>
+                void findForSlot({
+                  existing: card,
+                  anchor: card.anchor,
+                  kind: card.kind,
+                  slotKey: card.id,
+                }),
+            }
+          : {})}
+        searchingSlotId={discovery.searchingSlotId}
       />
 
       {creating ? (
