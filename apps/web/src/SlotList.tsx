@@ -80,6 +80,7 @@ function Slot({
   onFind,
   searchingSlotId,
   canSearch,
+  onAddOption,
 }: Shared & {
   title: string;
   meta?: string;
@@ -91,6 +92,14 @@ function Slot({
   addLabel: string;
   /** Absent where searching this sort of slot is not a thing the app does yet. */
   findLabel?: string;
+  /**
+   * Present on slot-shaped rows only.
+   *
+   * A stop group's Add always makes a new card: a museum and a beach day are different things, not
+   * rival answers to one question. A leg or a stay is one question, so a second candidate for it
+   * belongs on the card already there.
+   */
+  onAddOption?: (cardId: string) => void;
 }) {
   const existing = cards.find((c) => c.kind === kind);
   const busy = searchingSlotId !== null;
@@ -139,19 +148,41 @@ function Slot({
             {searchingSlotId === searchKey ? 'Searching the web…' : findLabel}
           </button>
         ) : null}
-        <button
-          type="button"
-          className="btn"
-          onClick={() => onAdd(anchor, orderedKinds(anchor, kind))}
-        >
-          {addLabel}
-        </button>
+        {existing && onAddOption ? (
+          <button type="button" className="btn" onClick={() => onAddOption(existing.id)}>
+            + Add another option
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => onAdd(anchor, orderedKinds(anchor, kind))}
+          >
+            {addLabel}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-export function SlotList({ slots, tab, ...shared }: Shared & { slots: TripSlots; tab: PanelTab }) {
+export function SlotList({
+  slots,
+  tab,
+  onAddOption,
+  ...shared
+}: Shared & {
+  slots: TripSlots;
+  tab: PanelTab;
+  /**
+   * Kept out of `Shared` deliberately: `Shared` is spread onto every `Slot`, including the
+   * stop-group rows (local transport, activities) whose Add must keep making new cards — a museum
+   * and a beach day are different things, not rival answers to one question. Destructured here
+   * alongside `slots` and `tab` so it never reaches `shared`, and so it can be passed only to the
+   * connection and stay rows below.
+   */
+  onAddOption: (cardId: string) => void;
+}) {
   const leg = (from: string | null, to: string | null) => `${from ?? 'Home'} → ${to ?? 'Home'}`;
 
   if (tab === 'flights' || tab === 'transport') {
@@ -175,6 +206,7 @@ export function SlotList({ slots, tab, ...shared }: Shared & { slots: TripSlots;
             findLabel={
               tab === 'flights' ? 'Find flights with Claude' : 'Find a way there with Claude'
             }
+            onAddOption={onAddOption}
           />
         ))}
         {tab === 'transport'
@@ -215,6 +247,7 @@ export function SlotList({ slots, tab, ...shared }: Shared & { slots: TripSlots;
             slotKey={slot.id}
             addLabel="+ Add one you found"
             findLabel="Find places to stay with Claude"
+            onAddOption={onAddOption}
           />
         ))}
       </>

@@ -91,6 +91,7 @@ export function OptionsPanel({
             onFind={onFindForSlot}
             searchingSlotId={detail.searchingSlotId}
             canSearch={canSearch}
+            onAddOption={detail.onAddOption}
           />
         </div>
       )}
