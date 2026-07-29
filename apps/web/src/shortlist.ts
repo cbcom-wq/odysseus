@@ -39,3 +39,29 @@ export function addCandidate(
   };
   return addCard(trip, card);
 }
+
+/**
+ * Re-key a batch of found candidates so their ids are unique to this search.
+ *
+ * A "things to do" search runs against a throwaway card (`findThingsToDo` in `App.tsx` builds one
+ * with id `'pending'` and no options, just to shape the query) and `discoveredOptions` mints its
+ * option ids against *that* card, not against the trip. Every activities search therefore produces
+ * the same `pending-opt-1`, `pending-opt-2`, … no matter what it actually found. `CandidateRow` is
+ * keyed on `candidate.id`, so a second search whose results carry the same ids as the first makes
+ * React reuse the same row instances — and the day already chosen on the old candidate survives
+ * onto whichever different activity the new search put in its place. That is exactly the "no
+ * default" invariant `CandidateRow`'s day picker exists to protect, so it is fixed here, before the
+ * results ever reach state, rather than by teaching the component about a quirk of where its ids
+ * came from.
+ *
+ * Safe to rewrite: a shortlist id is a UI key, nothing more. `addCandidate` renumbers the option
+ * again against the card it actually lands on (`${cardId}-opt-1`), so nothing downstream ever reads
+ * the id minted here.
+ */
+export function stampCandidates(
+  found: readonly Option[],
+  segmentId: string,
+  batch: number,
+): readonly Option[] {
+  return found.map((option, index) => ({ ...option, id: `${segmentId}-search${batch}-${index}` }));
+}

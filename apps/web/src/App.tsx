@@ -49,7 +49,7 @@ import { StructureView } from './StructureView.js';
 import { dateRange, money, shortDate, tripSubtitle } from './format.js';
 import type { LinkedImport } from './import-fares.js';
 import { linkImportedFares } from './import-fares.js';
-import { addCandidate } from './shortlist.js';
+import { addCandidate, stampCandidates } from './shortlist.js';
 import type { SlotSearchRequest } from './slot-search.js';
 import { landSearchResults, slotSearchTarget } from './slot-search.js';
 import { useDiscovery } from './useDiscovery.js';
@@ -171,10 +171,20 @@ function Workspace({
    * persisting suggestions would fill saved trips with things nobody decided on.
    */
   const [shortlists, setShortlists] = useState<Record<string, readonly Option[]>>({});
+  // Bumped once per search, purely so `stampCandidates` can make each batch's ids unique — see the
+  // comment there for why identical ids across searches is a bug, not a curiosity. A plain counter
+  // rather than `Date.now()`: it is deterministic and trivial to reason about in a test.
+  const searchBatch = useRef(0);
 
   const findThingsToDo = async (segmentId: string) => {
     // The whole stay, not one day — "what is worth doing in Sao Paulo" is not a question about
     // Tuesday. The card is thrown away either way; only its kind and anchor shape the query.
+    //
+    // `kind: 'activity'` paired with a `segment` anchor is not a legal combination for the card
+    // editor — `kindsForAnchor('segment')` would say lodging or a note, never an activity — but
+    // this card never reaches the editor or the trip. The `segment` anchor is precisely what makes
+    // `buildSearchQuery` ask about the whole stay instead of one day; do not "fix" this pair to
+    // `segment-day`, which would silently narrow every search back down to a single day.
     const asking: Card = {
       id: 'pending',
       kind: 'activity',
@@ -191,7 +201,9 @@ function Workspace({
         );
         return;
       }
-      setShortlists((current) => ({ ...current, [segmentId]: found }));
+      searchBatch.current += 1;
+      const stamped = stampCandidates(found, segmentId, searchBatch.current);
+      setShortlists((current) => ({ ...current, [segmentId]: stamped }));
       setNotice(
         `Found ${found.length} thing${found.length === 1 ? '' : 's'} to consider — none of it is ` +
           'on your trip until you pick a day for it.',
