@@ -2,6 +2,7 @@ import type {
   Card,
   CardAnchor,
   CardKind,
+  Option,
   PlacedCard,
   PlanningState,
   RankingPreset,
@@ -10,6 +11,7 @@ import type {
   TripSlots,
 } from '@odysseus/domain';
 import { CardDetail } from './CardDetail.js';
+import type { DayChoice } from './CardEditor.js';
 import type { PanelTab } from './SlotList.js';
 import { SlotList, TABS } from './SlotList.js';
 import type { SlotSearchRequest } from './slot-search.js';
@@ -31,6 +33,11 @@ export function OptionsPanel({
   onAddToSlot,
   onFindForSlot,
   canSearch,
+  shortlists,
+  daysOfSegment,
+  onAcceptCandidate,
+  onDismissCandidate,
+  onFindThingsToDo,
   ...detail
 }: {
   trip: Trip;
@@ -45,6 +52,12 @@ export function OptionsPanel({
   onAddToSlot: (anchor: CardAnchor, kinds: readonly CardKind[]) => void;
   onFindForSlot: (request: SlotSearchRequest) => void;
   canSearch: boolean;
+  /** Found things to do, by segment id. Session state — never written to the trip. */
+  shortlists: Readonly<Record<string, readonly Option[]>>;
+  daysOfSegment: (segmentId: string) => readonly DayChoice[];
+  onAcceptCandidate: (segmentId: string, candidate: Option, dayOffset: number) => void;
+  onDismissCandidate: (segmentId: string, candidate: Option) => void;
+  onFindThingsToDo: (segmentId: string) => void;
   onBack: () => void;
   onChooseOption: (cardId: string, optionId: string) => void;
   onChangeState: (cardId: string, state: PlanningState) => void;
@@ -92,6 +105,11 @@ export function OptionsPanel({
             searchingSlotId={detail.searchingSlotId}
             canSearch={canSearch}
             onAddOption={detail.onAddOption}
+            shortlists={shortlists}
+            daysOfSegment={daysOfSegment}
+            onAcceptCandidate={onAcceptCandidate}
+            onDismissCandidate={onDismissCandidate}
+            onFindThingsToDo={onFindThingsToDo}
           />
         </div>
       )}

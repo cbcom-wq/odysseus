@@ -3,6 +3,7 @@ import type {
   Card,
   CardAnchor,
   CardKind,
+  Option,
   PlanningState,
   RankingPreset,
   Trip,
@@ -48,6 +49,7 @@ import { StructureView } from './StructureView.js';
 import { dateRange, money, shortDate, tripSubtitle } from './format.js';
 import type { LinkedImport } from './import-fares.js';
 import { linkImportedFares } from './import-fares.js';
+import { addCandidate } from './shortlist.js';
 import type { SlotSearchRequest } from './slot-search.js';
 import { landSearchResults, slotSearchTarget } from './slot-search.js';
 import { useDiscovery } from './useDiscovery.js';
@@ -161,6 +163,60 @@ function Workspace({
   // completion reads the trip as it is *now*.
   const tripNow = useRef(trip);
   tripNow.current = trip;
+
+  /**
+   * Things found to do, not yet on the trip.
+   *
+   * Session state on purpose: a candidate is a suggestion until a day is named for it, and
+   * persisting suggestions would fill saved trips with things nobody decided on.
+   */
+  const [shortlists, setShortlists] = useState<Record<string, readonly Option[]>>({});
+
+  const findThingsToDo = async (segmentId: string) => {
+    // The whole stay, not one day — "what is worth doing in Sao Paulo" is not a question about
+    // Tuesday. The card is thrown away either way; only its kind and anchor shape the query.
+    const asking: Card = {
+      id: 'pending',
+      kind: 'activity',
+      state: 'unplanned',
+      anchor: { kind: 'segment', segmentId },
+      options: [],
+    };
+    try {
+      const found = await discovery.find(trip, asking, `activities:${segmentId}`);
+      if (found.length === 0) {
+        setNotice(
+          "Claude searched but didn't find anything it could stand behind. Try adding what you " +
+            'find by hand.',
+        );
+        return;
+      }
+      setShortlists((current) => ({ ...current, [segmentId]: found }));
+      setNotice(
+        `Found ${found.length} thing${found.length === 1 ? '' : 's'} to consider — none of it is ` +
+          'on your trip until you pick a day for it.',
+      );
+    } catch (error) {
+      setNotice(describeExtractionError(error).message);
+    }
+  };
+
+  const dropCandidate = (segmentId: string, candidate: Option) =>
+    setShortlists((current) => ({
+      ...current,
+      [segmentId]: (current[segmentId] ?? []).filter((o) => o.id !== candidate.id),
+    }));
+
+  const acceptCandidate = (segmentId: string, candidate: Option, dayOffset: number) => {
+    const next = addCandidate(tripNow.current, candidate, segmentId, dayOffset);
+    if (!next) {
+      setNotice(`That stop is gone, so ${candidate.title} was not added.`);
+      dropCandidate(segmentId, candidate);
+      return;
+    }
+    update(next);
+    dropCandidate(segmentId, candidate);
+  };
 
   const findForSlot = async (request: SlotSearchRequest) => {
     const target = slotSearchTarget(request);
@@ -709,6 +765,11 @@ function Workspace({
         onAddToSlot={(anchor, kinds) => openEditor({ mode: 'new-card', anchor, kinds })}
         onFindForSlot={(request) => void findForSlot(request)}
         canSearch={discovery.available}
+        shortlists={shortlists}
+        daysOfSegment={daysOfSegment}
+        onAcceptCandidate={acceptCandidate}
+        onDismissCandidate={dropCandidate}
+        onFindThingsToDo={(segmentId) => void findThingsToDo(segmentId)}
         onBack={() => setSelectedCardId(undefined)}
         onChooseOption={chooseOption}
         onChangeState={changeState}

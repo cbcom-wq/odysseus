@@ -1,5 +1,8 @@
-import type { Card, CardAnchor, CardKind, Trip, TripSlots } from '@odysseus/domain';
+import type { Card, CardAnchor, CardKind, Option, Trip, TripSlots } from '@odysseus/domain';
 import { kindsForAnchor } from '@odysseus/domain';
+import { useState } from 'react';
+import type { DayChoice } from './CardEditor.js';
+import { optionCost } from './format.js';
 import type { SlotSearchRequest } from './slot-search.js';
 import { TravelCard } from './TravelCard.js';
 
@@ -166,10 +169,79 @@ function Slot({
   );
 }
 
+/**
+ * One thing a search turned up, not yet on the trip.
+ *
+ * The day picker has no default and adding is blocked until it is answered. An activity quietly
+ * landing on day one is the bug that put a 09:30 tour on the morning of an 08:45 landing, and this
+ * is exactly the path that would reintroduce it.
+ */
+function CandidateRow({
+  candidate,
+  trip,
+  days,
+  onAdd,
+  onDismiss,
+}: {
+  candidate: Option;
+  trip: Trip;
+  days: readonly DayChoice[];
+  onAdd: (dayOffset: number) => void;
+  onDismiss: () => void;
+}) {
+  const [day, setDay] = useState('');
+
+  return (
+    <div className="cand">
+      <div className="cand__top">
+        <span className="cand__title">{candidate.title}</span>
+        <span className="cand__cost">{optionCost(candidate, trip.currency)}</span>
+      </div>
+      {candidate.detail ? <div className="cand__detail">{candidate.detail}</div> : null}
+      <div className="cand__tools">
+        <select
+          className="select"
+          value={day}
+          aria-label={`Which day for ${candidate.title}`}
+          onChange={(e) => setDay(e.target.value)}
+        >
+          <option value="">Which day?</option>
+          {days.map((d) => (
+            <option key={d.offset} value={String(d.offset)}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="btn"
+          disabled={day === ''}
+          onClick={() => onAdd(Number(day))}
+        >
+          Add to trip
+        </button>
+        {candidate.sourceUrl ? (
+          <a className="link" href={candidate.sourceUrl} target="_blank" rel="noreferrer">
+            Source
+          </a>
+        ) : null}
+        <button type="button" className="link" onClick={onDismiss}>
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function SlotList({
   slots,
   tab,
   onAddOption,
+  shortlists,
+  daysOfSegment,
+  onAcceptCandidate,
+  onDismissCandidate,
+  onFindThingsToDo,
   ...shared
 }: Shared & {
   slots: TripSlots;
@@ -182,6 +254,12 @@ export function SlotList({
    * connection and stay rows below.
    */
   onAddOption: (cardId: string) => void;
+  /** Found things to do, by segment id. Session state — never written to the trip. */
+  shortlists: Readonly<Record<string, readonly Option[]>>;
+  daysOfSegment: (segmentId: string) => readonly DayChoice[];
+  onAcceptCandidate: (segmentId: string, candidate: Option, dayOffset: number) => void;
+  onDismissCandidate: (segmentId: string, candidate: Option) => void;
+  onFindThingsToDo: (segmentId: string) => void;
 }) {
   const leg = (from: string | null, to: string | null) => `${from ?? 'Home'} → ${to ?? 'Home'}`;
 
@@ -259,19 +337,56 @@ export function SlotList({
   }
   return (
     <>
-      {slots.activities.map((stop) => (
-        <Slot
-          key={stop.id}
-          {...shared}
-          title={stop.placeName}
-          emptyText="Nothing planned here yet."
-          cards={stop.cards}
-          anchor={{ kind: 'segment-day', segmentId: stop.segmentId, dayOffset: 0 }}
-          kind="activity"
-          slotKey={`activities:${stop.segmentId}`}
-          addLabel="+ Add something to do"
-        />
-      ))}
+      {slots.activities.map((stop) => {
+        const shortlist = shortlists[stop.segmentId] ?? [];
+        const busy = shared.searchingSlotId !== null;
+        return (
+          <div key={stop.id}>
+            <Slot
+              {...shared}
+              title={stop.placeName}
+              emptyText="Nothing planned here yet."
+              cards={stop.cards}
+              anchor={{ kind: 'segment-day', segmentId: stop.segmentId, dayOffset: 0 }}
+              kind="activity"
+              slotKey={`activities:${stop.segmentId}`}
+              addLabel="+ Add something to do"
+            />
+            {shared.canSearch ? (
+              <div className="slot__tools">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={() => onFindThingsToDo(stop.segmentId)}
+                >
+                  {shared.searchingSlotId === `activities:${stop.segmentId}`
+                    ? 'Searching the web…'
+                    : `Find things to do in ${stop.placeName}`}
+                </button>
+              </div>
+            ) : null}
+            {shortlist.length > 0 ? (
+              <>
+                <p className="panel__note">
+                  Found for {stop.placeName}. None of it is on your trip until you pick a day, and
+                  none of it survives a reload.
+                </p>
+                {shortlist.map((candidate) => (
+                  <CandidateRow
+                    key={candidate.id}
+                    candidate={candidate}
+                    trip={shared.trip}
+                    days={daysOfSegment(stop.segmentId)}
+                    onAdd={(dayOffset) => onAcceptCandidate(stop.segmentId, candidate, dayOffset)}
+                    onDismiss={() => onDismissCandidate(stop.segmentId, candidate)}
+                  />
+                ))}
+              </>
+            ) : null}
+          </div>
+        );
+      })}
     </>
   );
 }

@@ -1432,3 +1432,55 @@ button {
 .link--rail:hover {
   color: #cfdbe0;
 }
+
+.cand {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 9px 11px;
+  margin-bottom: 6px;
+}
+
+.cand__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cand__title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cand__cost {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cand__detail {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 3px;
+}
+
+.cand__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cand__tools .select {
+  flex: 1;
+  min-width: 108px;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.cand__tools .btn {
+  padding: 5px 9px;
+  font-size: 12px;
+}
