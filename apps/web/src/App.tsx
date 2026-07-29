@@ -244,11 +244,19 @@ function Workspace({
    *
    * One card has one home, so a flight clicked in the day grid always opens under Flights — even
    * though its leg is also listed under Transport.
+   *
+   * `kind` is an escape hatch for callers that just created the card they are selecting.
+   * `trip` here is the value closed over by this render, and `update(...)` does not mutate it in
+   * place — the new trip with the new card only arrives on the render after this one runs. Looking
+   * the id up in `trip.cards` for a card born this same tick finds nothing, so the tab silently
+   * fails to move. A caller that already knows what kind it just built should say so rather than
+   * rely on a lookup that cannot see it yet. Do not delete this parameter as unused-looking
+   * cleverness — it exists because of that exact trap.
    */
-  const selectCard = (id: string) => {
+  const selectCard = (id: string, kind?: CardKind) => {
     setSelectedCardId(id);
-    const card = trip.cards.find((c) => c.id === id);
-    if (card) setTab(tabForKind(card.kind));
+    const resolved = kind ?? trip.cards.find((c) => c.id === id)?.kind;
+    if (resolved) setTab(tabForKind(resolved));
   };
 
   /** A leg that exists but has no times yet. Nothing to correct, everything still to fill in. */
@@ -289,7 +297,9 @@ function Workspace({
     const after = splitStay(trip, segmentId, fromNight);
     if (after === trip) return;
     update(after);
-    selectCard(after.cards[after.cards.length - 1]!.id);
+    // A split stay's new card is always lodging, and it was born this same tick — trip.cards
+    // cannot see it yet, so the kind has to be handed in rather than looked up.
+    selectCard(after.cards[after.cards.length - 1]!.id, 'lodging');
   };
 
   /**
@@ -370,7 +380,8 @@ function Workspace({
 
       reportLinking(linked);
       update(linked.trip);
-      selectCard(cardId);
+      // Born this same tick — trip.cards cannot see it yet, so the kind has to be handed in.
+      selectCard(cardId, draft.kind);
     } else if (editor.mode === 'new-option') {
       const card = trip.cards.find((c) => c.id === editor.cardId);
       if (card) {
