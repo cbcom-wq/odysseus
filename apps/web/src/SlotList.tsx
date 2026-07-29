@@ -130,7 +130,9 @@ function Slot({
             title={
               booked
                 ? 'Unlock this booking first'
-                : 'Claude searches the live web and brings back candidates with source links'
+                : busy && searchingSlotId !== searchKey
+                  ? 'Another search is running — one at a time.'
+                  : 'Claude searches the live web and brings back candidates with source links'
             }
             onClick={() => onFind({ existing, anchor, kind, slotKey })}
           >

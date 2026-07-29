@@ -17,6 +17,7 @@ import {
   optionTiming,
   shortDate,
 } from './format.js';
+import { tabForKind } from './SlotList.js';
 
 const STATES: readonly PlanningState[] = ['exploring', 'selected', 'locked', 'booked'];
 
@@ -73,8 +74,11 @@ export function CardDetail({
   return (
     <>
       <div className="panel__head">
+        {/* Names the tab it returns to, not the card's own kind: the control goes back to a list
+            that groups by tab, and naive pluralisation of a kind ("activitys", "dinings") reads as
+            broken where the tab word itself is already the right word for every kind that tab holds. */}
         <button type="button" className="panel__back" onClick={onBack}>
-          ← All {card.kind === 'lodging' ? 'lodging' : `${card.kind}s`}
+          ← All {tabForKind(card.kind)}
         </button>
         <span className="label">{card.kind}</span>
         <h2 className="panel__title">{current?.title ?? 'Nothing chosen yet'}</h2>

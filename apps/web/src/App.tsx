@@ -370,7 +370,7 @@ function Workspace({
 
       reportLinking(linked);
       update(linked.trip);
-      setSelectedCardId(cardId);
+      selectCard(cardId);
     } else if (editor.mode === 'new-option') {
       const card = trip.cards.find((c) => c.id === editor.cardId);
       if (card) {
