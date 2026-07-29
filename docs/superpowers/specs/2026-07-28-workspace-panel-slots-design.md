@@ -120,6 +120,11 @@ day chosen. **The picker has no default and adding is blocked until a day is cho
 silently landing on day one is the bug that put a 09:30 tour on the morning of an 08:45 landing;
 the day picker in the detail view exists because of it, and this must not reintroduce it.
 
+The accepted candidate *is* selected on its new card, unlike an option landing from a slot search.
+Nothing was decided for the traveller: they picked this thing and named the day it happens on, which
+is the same act as typing it in by hand. Its `source` stays `discovered` — provenance is not a
+decision.
+
 The shortlist is session state. It does not survive a reload, and the empty-shortlist copy says so.
 Dismissing a candidate removes it from the list and nothing else.
 
