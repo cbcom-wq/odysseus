@@ -112,4 +112,65 @@ describe('landSearchResults', () => {
     });
     expect(landSearchResults(build(), target, found)).toBeNull();
   });
+
+  it('lands results on the card that was already there, replacing its discovered options but keeping the one the traveller added themselves', () => {
+    const card: Card = {
+      id: 'card-1',
+      kind: 'flight',
+      state: 'exploring',
+      anchor: outbound,
+      options: [
+        { id: 'old-1', source: 'discovered', title: 'Old TAP 100', cost: { kind: 'fixed', amount: 500 } },
+        { id: 'mine-1', source: 'user', title: 'My own pick', cost: { kind: 'fixed', amount: 900 } },
+      ],
+    };
+    const target = slotSearchTarget({
+      existing: card,
+      anchor: outbound,
+      kind: 'flight',
+      slotKey: 'connection:leg-1:flight',
+    });
+    const outcome = landSearchResults(build([card]), target, found);
+    expect(outcome).not.toBeNull();
+
+    // Same card, not a new one: exactly one card on the trip, carrying the id it already had.
+    const cards = outcome!.trip.cards;
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.id).toBe('card-1');
+
+    const titles = cards[0]!.options.map((o) => o.title);
+    expect(titles).not.toContain('Old TAP 100'); // superseded discovered option is gone
+    expect(titles).toContain('My own pick'); // the traveller's own option survives untouched
+    expect(titles).toEqual(expect.arrayContaining(['TAP 218', 'TAP 224'])); // new results landed
+    expect(outcome!.added).toBe(2);
+  });
+});
+
+describe('landSearchResults with a segment anchor', () => {
+  const lodgingAnchor = { kind: 'segment', segmentId: 'lis' } as const;
+
+  it('adds nothing when the segment was removed while the search ran', () => {
+    const target = slotSearchTarget({
+      existing: undefined,
+      anchor: { kind: 'segment', segmentId: 'gone' },
+      kind: 'lodging',
+      slotKey: 'segment:gone:lodging',
+    });
+    expect(landSearchResults(build(), target, found)).toBeNull();
+  });
+
+  it('creates the card when the segment is still on the trip', () => {
+    const target = slotSearchTarget({
+      existing: undefined,
+      anchor: lodgingAnchor,
+      kind: 'lodging',
+      slotKey: 'segment:lis:lodging',
+    });
+    const outcome = landSearchResults(build(), target, found);
+    expect(outcome).not.toBeNull();
+    expect(outcome!.trip.cards).toHaveLength(1);
+    expect(outcome!.trip.cards[0]!.kind).toBe('lodging');
+    expect(outcome!.trip.cards[0]!.anchor).toEqual(lodgingAnchor);
+    expect(outcome!.added).toBe(2);
+  });
 });
