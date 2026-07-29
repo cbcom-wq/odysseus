@@ -1,6 +1,7 @@
 import type { Conflict } from './conflicts.js';
 import { sortConflicts } from './conflicts.js';
 import { addDays, daysBetween, fromDayNumber, toDayNumber } from './dates.js';
+import { startNight, tailStay } from './stays.js';
 import type { Card, IsoDate, Option, Trip } from './types.js';
 
 /**
@@ -71,7 +72,37 @@ interface Constraints {
   readonly transitBefore: readonly number[];
   /** Segment lengths forced by a fixed stay, keyed by segment index. */
   readonly forced: ReadonlyMap<number, { nights: number; cardId: string }>;
+  /**
+   * Lower bounds keyed by segment index: a fixed stay partway through a place cannot force the whole
+   * length, because something else sleeps after it, but the place has to stay open long enough to
+   * reach the end of that booking.
+   */
+  readonly floors: ReadonlyMap<number, number>;
   readonly conflicts: readonly Conflict[];
+}
+
+/**
+ * A segment's declared range, tightened by whatever a fixed stay inside it demands.
+ *
+ * Everything that hands out nights reads this rather than `duration` directly, so a booked hotel
+ * cannot be honoured in one code path and ignored in another.
+ */
+function boundsFor(
+  trip: Trip,
+  index: number,
+  forced: Constraints['forced'],
+  floors: Constraints['floors'],
+): { min: number; ideal: number; max: number } {
+  const force = forced.get(index);
+  const floor = floors.get(index) ?? 0;
+  if (force) {
+    const nights = Math.max(force.nights, floor);
+    return { min: nights, ideal: nights, max: nights };
+  }
+
+  const { min, ideal, max } = trip.segments[index]!.duration;
+  const raised = Math.max(min, floor);
+  return { min: raised, ideal: Math.min(Math.max(ideal, raised), Math.max(max, raised)), max };
 }
 
 function gatherConstraints(trip: Trip): Constraints {
@@ -81,6 +112,7 @@ function gatherConstraints(trip: Trip): Constraints {
   const pins: Pin[] = [];
   const transitBefore = new Array<number>(trip.segments.length + 1).fill(0);
   const forced = new Map<number, { nights: number; cardId: string }>();
+  const floors = new Map<number, number>();
   const conflicts: Conflict[] = [];
 
   for (const card of trip.cards) {
@@ -109,13 +141,50 @@ function gatherConstraints(trip: Trip): Constraints {
       const index = segmentIndex.get(card.anchor.segmentId);
       if (index === undefined) continue;
 
+      const segment = trip.segments[index]!;
       const { checkIn, checkOut } = option.timing;
-      pins.push({ boundary: index, date: checkIn, cardId: card.id });
-      forced.set(index, { nights: daysBetween(checkIn, checkOut), cardId: card.id });
+
+      // A booked hotel says when *it* starts, which is only when the place starts if it is the
+      // first stay there. Read naively, a hotel booked for the back half of a stay would drag the
+      // whole place forward onto its own check-in date.
+      const from = card.kind === 'lodging' ? startNight(card) : 0;
+      const reach = from + daysBetween(checkIn, checkOut);
+      pins.push({ boundary: index, date: addDays(checkIn, -from), cardId: card.id });
+
+      // Only the last stay can set the length of the place, because only its end is the place's
+      // end. Anything earlier just holds the place open far enough to reach its own check-out.
+      if (tailStay(trip, segment.id)?.id === card.id) {
+        forced.set(index, { nights: reach, cardId: card.id });
+        continue;
+      }
+
+      floors.set(index, Math.max(floors.get(index) ?? 0, reach));
+
+      // Something sleeps after this booking, so the place cannot simply be lengthened to fit it.
+      // Say so rather than quietly clipping the booking to whatever the cap allows.
+      if (reach > segment.duration.max) {
+        conflicts.push({
+          code: 'INSUFFICIENT_TIME',
+          severity: 'blocking',
+          message:
+            `${option.title} runs to night ${reach} of ${segment.location.name}, which you capped ` +
+            `at ${segment.duration.max} night${segment.duration.max === 1 ? '' : 's'}.`,
+          segmentIds: [segment.id],
+          cardIds: [card.id],
+          flexible: { segmentIds: [segment.id], cardIds: [card.id] },
+          detail: { availableNights: segment.duration.max, requiredNights: reach },
+        });
+      }
     }
   }
 
-  return { pins, transitBefore, forced, conflicts: [...conflicts, ...detectPinClashes(pins)] };
+  return {
+    pins,
+    transitBefore,
+    forced,
+    floors,
+    conflicts: [...conflicts, ...detectPinClashes(pins)],
+  };
 }
 
 function detectPinClashes(pins: readonly Pin[]): Conflict[] {
@@ -202,15 +271,11 @@ function fillSpan(
   to: number,
   available: number,
   forced: Constraints['forced'],
+  floors: Constraints['floors'],
   pinCardIds: readonly string[],
 ): SpanResult {
   const segments = trip.segments.slice(from, to);
-  const bounds = segments.map((s, i) => {
-    const force = forced.get(from + i);
-    return force
-      ? { min: force.nights, max: force.nights, ideal: force.nights }
-      : { min: s.duration.min, max: s.duration.max, ideal: s.duration.ideal };
-  });
+  const bounds = segments.map((_, i) => boundsFor(trip, from + i, forced, floors));
 
   const minSum = bounds.reduce((a, b) => a + b.min, 0);
   const maxSum = bounds.reduce((a, b) => a + b.max, 0);
@@ -285,7 +350,7 @@ function reasonFor(
 }
 
 export function schedule(trip: Trip): Schedule {
-  const { pins, transitBefore, forced, conflicts: setupConflicts } = gatherConstraints(trip);
+  const { pins, transitBefore, forced, floors, conflicts: setupConflicts } = gatherConstraints(trip);
   const conflicts: Conflict[] = [...setupConflicts];
   const count = trip.segments.length;
 
@@ -333,6 +398,7 @@ export function schedule(trip: Trip): Schedule {
       span.to,
       span.available,
       forced,
+      floors,
       span.cardIds,
     );
     filled.forEach((n, i) => (nights[span.from + i] = n));
@@ -364,7 +430,7 @@ export function schedule(trip: Trip): Schedule {
   }
 
   if (free.length > 0) {
-    const bounds = free.map((i) => trip.segments[i]!.duration);
+    const bounds = free.map((i) => boundsFor(trip, i, forced, floors));
     const wanted = bounds.reduce((sum, d) => sum + d.ideal, 0);
 
     // Aim for what the segments want, but no further outside the trip's stated length than the
@@ -416,12 +482,14 @@ export function schedule(trip: Trip): Schedule {
     cursor += transitBefore[i] ?? 0;
     const segment = trip.segments[i]!;
     const force = forced.get(i);
+    // A place held open by a booking partway through it is as pinned as one a booking sets outright.
+    const heldByFloor = nights[i]! === floors.get(i) && nights[i]! > segment.duration.min;
     scheduled.push({
       segmentId: segment.id,
       nights: nights[i]!,
       startDay: cursor,
       ...(startDate === undefined ? {} : { startDate: addDays(startDate, cursor) }),
-      reason: reasonFor(nights[i]!, segment.duration, force !== undefined),
+      reason: reasonFor(nights[i]!, segment.duration, force !== undefined || heldByFloor),
       ...(force ? { pinnedBy: force.cardId } : {}),
     });
     cursor += nights[i]!;

@@ -1,5 +1,15 @@
 import { fareGroupPartners, nextFareGroupId, splitFare } from './fare-group.js';
-import type { Card, CardKind, Connection, Option, OptionTiming, Segment, Trip } from './types.js';
+import { startNight, staysInOrder } from './stays.js';
+import type {
+  Card,
+  CardKind,
+  Connection,
+  Option,
+  OptionSource,
+  OptionTiming,
+  Segment,
+  Trip,
+} from './types.js';
 
 /**
  * Pure edits to a trip.
@@ -219,6 +229,33 @@ export function addCard(trip: Trip, card: Card): Trip {
 }
 
 /**
+ * Change hotels partway through a stay.
+ *
+ * Lodging is one decision for a whole place, so this is the only way to get a second hotel into one:
+ * name the night you move, and the nights from there to the end of the stay become a slot of their
+ * own. The stay before it gives up exactly those nights and nothing else has to be told.
+ *
+ * Undoing a split is deleting the card — the earlier stay re-absorbs the nights, because its end was
+ * never stored in the first place.
+ */
+export function splitStay(trip: Trip, segmentId: string, fromNight: number): Trip {
+  const night = Math.trunc(fromNight);
+
+  // Splitting at the first night is not a split, and splitting where a stay already begins would
+  // only strand one of the two. The interface offers neither.
+  if (night <= 0) return trip;
+  if (staysInOrder(trip, segmentId).some((c) => startNight(c) === night)) return trip;
+
+  return addCard(trip, {
+    id: nextCardId(trip),
+    kind: 'lodging',
+    state: 'unplanned',
+    anchor: { kind: 'segment', segmentId, fromNight: night },
+    options: [],
+  });
+}
+
+/**
  * Move a day-anchored card to a different day of its stay.
  *
  * The offset stays relative, so the card keeps travelling with the segment when the trip reflows.
@@ -330,7 +367,12 @@ export function linkReturnLeg(
   trip: Trip,
   outboundCardId: string,
   optionId: string,
-  opts: { readonly returnDate?: string; readonly returnTiming?: OptionTiming } = {},
+  opts: {
+    readonly returnDate?: string;
+    readonly returnTiming?: OptionTiming;
+    /** Provenance for the built leg — a discovered fare's second half is machine-made too. */
+    readonly source?: OptionSource;
+  } = {},
 ): ReturnLegOutcome {
   const outbound = trip.cards.find((c) => c.id === outboundCardId);
   if (!outbound || outbound.anchor.kind !== 'connection') return { kind: 'not-applicable' };
@@ -376,7 +418,7 @@ export function linkReturnLeg(
   // than a blank. Only fall back to the placeholder when the source genuinely did not say.
   const timing = opts.returnTiming;
   const placeholder = {
-    source: 'user' as const,
+    source: opts.source ?? ('user' as const),
     title: 'Return flight',
     detail: timing
       ? `Returns ${timing.kind === 'journey' ? timing.departDate : (opts.returnDate ?? '')}`.trim()

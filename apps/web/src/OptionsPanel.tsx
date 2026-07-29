@@ -1,5 +1,6 @@
 import type {
   Card,
+  Option,
   PlacedCard,
   PlanningState,
   RankedOption,
@@ -46,6 +47,8 @@ export function OptionsPanel({
   onEditOption,
   onRemoveOption,
   onRemoveCard,
+  onFindOptions,
+  searchingCardId,
 }: {
   trip: Trip;
   schedule: Schedule;
@@ -59,6 +62,9 @@ export function OptionsPanel({
   onEditOption: (cardId: string, optionId: string) => void;
   onRemoveOption: (cardId: string, optionId: string) => void;
   onRemoveCard: (cardId: string) => void;
+  /** Absent in the browser build, where nothing can run a search. */
+  onFindOptions?: (cardId: string) => void;
+  searchingCardId?: string | null;
 }) {
   const card = trip.cards.find((c) => c.id === selectedCardId);
 
@@ -162,6 +168,23 @@ export function OptionsPanel({
         ))}
 
         <div className="panel__tools">
+          {onFindOptions && card.kind !== 'note' ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={searchingCardId !== null || card.state === 'booked'}
+              title={
+                card.state === 'booked'
+                  ? 'Unlock this booking first'
+                  : 'Claude searches the live web and brings back candidates with source links'
+              }
+              onClick={() => onFindOptions(card.id)}
+            >
+              {searchingCardId === card.id
+                ? 'Searching the web… this can take a few minutes'
+                : 'Find options with Claude'}
+            </button>
+          ) : null}
           <button type="button" className="btn" onClick={() => onAddOption(card.id)}>
             + Add an option you found
           </button>
@@ -219,6 +242,7 @@ function OptionRow({
         <span className="opt__title">{option.title}</span>
         {isCurrent ? <span className="opt__badge">chosen</span> : null}
         {option.source === 'user' ? <span className="opt__badge">yours</span> : null}
+        {option.source === 'discovered' ? <span className="opt__badge">found</span> : null}
         <span className="opt__fare">{optionCost(option, trip.currency)}</span>
       </span>
 
@@ -252,12 +276,29 @@ function OptionRow({
           <span>{warning}</span>
         </span>
       ) : null}
+
+      {/* What the source would not stand behind. A found price is often a "from" figure for other
+          dates, and the search says so — showing the number without the caveat would turn a
+          rough indication into a quote. */}
+      {sourceCaveat(option) ? (
+        <span className="opt__warn" data-kind="source">
+          <span aria-hidden="true">▲</span>
+          <span>{sourceCaveat(option)}</span>
+        </span>
+      ) : null}
     </button>
 
       {/* Sibling buttons rather than nested ones: a button inside a button is invalid markup and
           breaks keyboard navigation. */}
-      {canEdit || canRemove ? (
+      {canEdit || canRemove || option.sourceUrl ? (
         <div className="opt__tools">
+          {option.sourceUrl ? (
+            // Somewhere to go back to. Carried, never re-fetched — the shell routes it to the
+            // real browser.
+            <a className="link" href={option.sourceUrl} target="_blank" rel="noreferrer">
+              Source
+            </a>
+          ) : null}
           {canEdit ? (
             <button type="button" className="link" onClick={onEdit}>
               Edit
@@ -272,6 +313,19 @@ function OptionRow({
       ) : null}
     </div>
   );
+}
+
+/**
+ * What a found option's source would not vouch for.
+ *
+ * Searches routinely come back with a real property at a real link whose price is a "starting from"
+ * figure for dates other than the ones asked about — and they say so. A low confidence with nothing
+ * written down still earns a line: the number is worth a second look either way.
+ */
+function sourceCaveat(option: Option): string | null {
+  const warnings = option.attributes?.['warnings'];
+  if (typeof warnings === 'string' && warnings !== '') return warnings;
+  return option.attributes?.['confidence'] === 'low' ? 'Worth checking — read with low confidence.' : null;
 }
 
 /**

@@ -82,6 +82,12 @@ Every layer mirrors the extraction pipeline, which has already survived contact 
 - **Providers stay pure.** `ClaudeSearchProvider` takes an injected transport; the CLI spawn
   lives in the main process, the pure builders in `packages/extraction` beside their extraction
   twins.
+- **A search is long and cannot be called back.** Measured runs of the same lodging search took
+  144s and over 300s, so extraction's two-minute limit does not transfer; the ceiling is ten
+  minutes and exists to catch a wedged process, not to bound a normal one. Since the IPC call
+  cannot be recalled, the button offers no cancel — it disables and says how long this may take.
+  A run killed by that ceiling reports *timed out*, never "couldn't read that": nothing was
+  unreadable, and the raw failure is the entire command line with the schema in it.
 
 ## Out of scope
 

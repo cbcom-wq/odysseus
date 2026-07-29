@@ -8,11 +8,12 @@ import type { LoadResult, Repository, StoredTrip } from './repository.js';
  * the preload bridge, and the renderer drifting apart. The shell imports the channel names; the
  * interface imports the repository.
  *
- * Four of the five calls are about storing trips. The fifth is not, and it is worth saying why it
- * earned its place: reading a pasted link or screenshot means running the Claude Code CLI, and only
- * the main process can start a process. Without it a desktop user would have to hold an API key for
- * a tool they already have installed and are already signed in to. The renderer still gets no
- * filesystem, no shell, and no general IPC — it can ask for one extraction and nothing else.
+ * Four of the six calls are about storing trips. The other two are not, and it is worth saying why
+ * they earned their place: reading a pasted link or screenshot — and searching the web for options —
+ * mean running the Claude Code CLI, and only the main process can start a process. Without them a
+ * desktop user would have to hold an API key for a tool they already have installed and are already
+ * signed in to. The renderer still gets no filesystem, no shell, and no general IPC — it can ask
+ * for one extraction or one search and nothing else.
  */
 
 export const TRIPS_LOAD_ALL = 'trips:loadAll';
@@ -20,6 +21,7 @@ export const TRIPS_SAVE = 'trips:save';
 export const TRIPS_REMOVE = 'trips:remove';
 export const TRIPS_REVEAL = 'trips:reveal';
 export const EXTRACT_OPTION = 'extract:option';
+export const SEARCH_OPTIONS = 'search:options';
 
 /**
  * A paste to be read into card fields.
@@ -33,6 +35,28 @@ export interface BridgeExtractionRequest {
   readonly payload: string;
   readonly mediaType?: string;
   readonly allowedKinds: readonly string[];
+}
+
+/**
+ * A card's slot, described for a web search. Structural for the same reason as the extraction
+ * request above — plain strings and numbers the main process re-validates before doing anything.
+ */
+export interface BridgeSearchRequest {
+  readonly cardKind: string;
+  /** Absent only on the homeward leg — the trip knows where it ends, but home is not modelled. */
+  readonly destination?: string;
+  readonly destinationCode?: string;
+  readonly origin?: string;
+  readonly startDate?: string;
+  readonly endDate?: string;
+  readonly nights?: number;
+  readonly windowEarliest?: string;
+  readonly windowLatest?: string;
+  readonly lengthMin?: number;
+  readonly lengthMax?: number;
+  readonly travelers: number;
+  readonly currency: string;
+  readonly hints: readonly string[];
 }
 
 /**
@@ -57,6 +81,11 @@ export interface DesktopBridge {
    * Claude Code. Rejects if it is not installed. Returns the raw fields for the caller to validate.
    */
   extractOption(request: BridgeExtractionRequest): Promise<unknown>;
+  /**
+   * Search the live web for options filling a card, using the locally installed Claude Code.
+   * Rejects if it is not installed. Returns the raw batch for the caller to validate.
+   */
+  searchOptions(request: BridgeSearchRequest): Promise<unknown>;
 }
 
 /** The bridge if this is running inside a desktop shell, otherwise undefined. */

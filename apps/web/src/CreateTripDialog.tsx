@@ -35,6 +35,8 @@ export function CreateTripDialog({
   const [minNights, setMinNights] = useState('7');
   const [maxNights, setMaxNights] = useState('14');
   const [startDate, setStartDate] = useState('');
+  const [windowEarliest, setWindowEarliest] = useState('');
+  const [windowLatest, setWindowLatest] = useState('');
   const [currency, setCurrency] = useState('USD');
 
   const places = destinations
@@ -59,6 +61,14 @@ export function CreateTripDialog({
         currency,
         existingIds,
         ...(startDate ? { startDate } : {}),
+        ...(!startDate && windowEarliest && windowLatest
+          ? {
+              window: {
+                earliest: windowEarliest < windowLatest ? windowEarliest : windowLatest,
+                latest: windowEarliest < windowLatest ? windowLatest : windowEarliest,
+              },
+            }
+          : {}),
       }),
     );
   };
@@ -110,6 +120,36 @@ export function CreateTripDialog({
             fixes it.
           </div>
         </div>
+
+        {startDate ? null : (
+          <div className="row">
+            <div className="field">
+              <label className="label" htmlFor="trip-window-from">
+                Or sometime between
+              </label>
+              <input
+                id="trip-window-from"
+                type="date"
+                value={windowEarliest}
+                onChange={(e) => setWindowEarliest(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="trip-window-to">
+                and
+              </label>
+              <input
+                id="trip-window-to"
+                type="date"
+                value={windowLatest}
+                onChange={(e) => setWindowLatest(e.target.value)}
+              />
+              <div className="field__hint">
+                A window is enough for searches to hunt the best-value dates inside it.
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="row">
           <div className="field">

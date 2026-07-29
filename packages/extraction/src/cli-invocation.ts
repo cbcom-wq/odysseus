@@ -156,6 +156,20 @@ export class CliFailedError extends Error {
 }
 
 /**
+ * The run was killed for taking too long.
+ *
+ * Its own class because it is the one failure that says nothing about the source: a search that ran
+ * for a quarter of an hour and was cut off has not read anything badly, and "fill it in by hand"
+ * would be answering a question the user did not ask.
+ */
+export class CliTimedOutError extends Error {
+  constructor(message = 'Claude Code took too long and was stopped.') {
+    super(message);
+    this.name = 'CliTimedOutError';
+  }
+}
+
+/**
  * Pull the fields out of what the CLI printed.
  *
  * `--output-format json` wraps the answer in a result envelope; `--json-schema` puts the validated

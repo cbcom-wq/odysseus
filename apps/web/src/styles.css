@@ -392,6 +392,77 @@ button {
   font-style: italic;
 }
 
+/* ---------- the stay ribbon ----------
+   Nights after the first thin to a rule, so a hotel reads as one decision running down the grid
+   rather than as an identical card on every row. */
+
+.stay {
+  display: flex;
+  align-items: stretch;
+  gap: 9px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 2px 0 2px 2px;
+  text-align: left;
+  min-height: 26px;
+}
+
+/* The colour travels as a custom property so the taper below and the selected and conflicted states
+   can each set it without one overriding the other's shape. */
+.stay__rule {
+  --rule: var(--line-strong);
+  flex: 0 0 3px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+
+/* The last night stops the rule short, so where the stay ends is visible without reading a date. */
+.stay__rule[data-last='true'] {
+  background: linear-gradient(var(--rule) 55%, transparent 55%);
+}
+
+.stay__text {
+  align-self: center;
+  color: var(--ink-3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Every night of the stay lights up together — one decision, however many rows it spans. */
+.stay[aria-pressed='true'] .stay__rule {
+  --rule: var(--accent);
+}
+
+.stay[aria-pressed='true'] .stay__text {
+  color: var(--ink);
+}
+
+.stay:hover .stay__text {
+  color: var(--ink-2);
+}
+
+.stay[data-conflicted='true'] .stay__rule {
+  --rule: var(--flag);
+}
+
+/* A stay in the structure view, captioned with the nights it covers. */
+.stayrange {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stayrange__nights {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
 /* ---------- travel card ---------- */
 
 .tcard {
@@ -823,6 +894,12 @@ button {
   font-size: 11px;
   color: var(--flag);
   line-height: 1.4;
+}
+
+/* What the source would not vouch for. Quieter than a conflict on purpose: an indicative price is
+   something to know before trusting the number, not something wrong with the trip. */
+.opt__warn[data-kind='source'] {
+  color: var(--ink-3);
 }
 
 /* ---------- the signature: trip spine ---------- */

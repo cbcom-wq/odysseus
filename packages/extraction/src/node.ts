@@ -7,6 +7,7 @@ import type { CardKind } from '@odysseus/domain';
 import type { CliRequest } from './cli-invocation.js';
 import {
   CliFailedError,
+  CliTimedOutError,
   CliUnavailableError,
   buildCliArgs,
   buildPrompt,
@@ -14,6 +15,10 @@ import {
 } from './cli-invocation.js';
 import { buildExtractionSchema } from './schema.js';
 import type { ExtractedBatch } from './schema.js';
+import type { CliSearchRequest } from './search-invocation.js';
+import { buildSearchCliArgs, buildSearchPrompt } from './search-invocation.js';
+import { buildSearchResultSchema } from './search-schema.js';
+import type { DiscoveredBatch } from './search-schema.js';
 
 /**
  * Running the Claude Code CLI.
@@ -26,6 +31,15 @@ import type { ExtractedBatch } from './schema.js';
 
 /** Long enough for a page fetch plus a screenshot read; short enough that a wedged run gives up. */
 const TIMEOUT_MS = 120_000;
+
+/**
+ * A search runs the web tools many times over — several queries, then a page per candidate — and
+ * how long that takes varies wildly with how cooperative the sites are. Measured runs of the same
+ * lodging search came in at 144s and at over 300s, so extraction's two-minute limit is far too
+ * tight. This is a backstop against a wedged process, not an expected duration: there is no way to
+ * cancel one of these from the interface, so every second of it is a second the user cannot escape.
+ */
+const SEARCH_TIMEOUT_MS = 600_000;
 
 /** Answers can be a few kB. A runaway one should fail rather than be held in memory. */
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -67,12 +81,17 @@ function extensionFor(mediaType: string | undefined): string {
  * The arguments that remain carry no user input: fixed flags, and a schema built from a closed set
  * of card kinds.
  */
-function runClaude(prompt: string, args: string[], cwd: string): Promise<string> {
+function runClaude(
+  prompt: string,
+  args: string[],
+  cwd: string,
+  timeout: number = TIMEOUT_MS,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       'claude',
       args,
-      { cwd, timeout: TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
+      { cwd, timeout, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
       (error, stdout, stderr) => {
         if (!error) return resolve(stdout);
 
@@ -82,6 +101,11 @@ function runClaude(prompt: string, args: string[], cwd: string): Promise<string>
         // A non-zero exit with a parseable envelope on stdout is a failed extraction, not a broken
         // install — let the parser report what the CLI actually said.
         if (stdout.trim().startsWith('{')) return resolve(stdout);
+
+        // `killed` is how Node reports that it stopped the child itself, which here only ever means
+        // the timeout fired. Worth separating: `error.message` in that case is the entire command
+        // line, schema and all, and it says nothing about what went wrong.
+        if ((error as { killed?: boolean }).killed === true) return reject(new CliTimedOutError());
 
         reject(new CliFailedError(stderr.trim() || error.message));
       },
@@ -138,6 +162,36 @@ export async function extractWithCli(
   } finally {
     await rm(workdir, { recursive: true, force: true }).catch(() => {
       // A leftover temp directory is not worth failing a paste over.
+    });
+  }
+}
+
+/**
+ * Search the live web for options using the locally installed Claude Code.
+ *
+ * Same neutral-directory rule as extraction, and it matters more here: a stray CLAUDE.md would ride
+ * along on a run that already spends minutes in web tools. No files are written — the request is
+ * all short strings — so the directory exists purely to be empty.
+ */
+export async function searchWithCli(request: CliSearchRequest): Promise<DiscoveredBatch> {
+  const workdir = await mkdtemp(join(tmpdir(), 'odysseus-search-'));
+
+  try {
+    const stdout = await runClaude(
+      buildSearchPrompt(request),
+      buildSearchCliArgs(request),
+      workdir,
+      SEARCH_TIMEOUT_MS,
+    );
+
+    // Validated twice for the same reason as extraction: the CLI checked the JSON Schema, this side
+    // checks the Zod schema the app trusts. Junk fails here, not in someone's trip.
+    return buildSearchResultSchema(request.cardKind).parse(
+      parseCliOutput(stdout),
+    ) as DiscoveredBatch;
+  } finally {
+    await rm(workdir, { recursive: true, force: true }).catch(() => {
+      // A leftover temp directory is not worth failing a search over.
     });
   }
 }

@@ -241,6 +241,79 @@ describe('pins', () => {
   });
 });
 
+describe('pins from a split stay', () => {
+  // A booked hotel for the back half of a stay says when *it* starts, not when the stay does. Read
+  // naively it would drag the whole place forward onto its own check-in date.
+  it('dates the place from the first night, not from the booked hotel that starts later', () => {
+    const t = trip({
+      segments: [segment('par', 'Paris', { min: 1, ideal: 5, max: 9 })],
+      cards: [
+        card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+          floatingStayOption('alpha', { perNight: 110 }),
+        ]),
+        card('c-b', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 2 }, [
+          stayOption('bravo', { checkIn: '2026-09-29', checkOut: '2026-10-02' }),
+        ]),
+      ],
+    });
+    expect(schedule(t).segments[0]!.startDate).toBe('2026-09-27');
+  });
+
+  it('lets a booked last stay force the length of the whole place', () => {
+    const t = trip({
+      segments: [segment('par', 'Paris', { min: 1, ideal: 2, max: 9 })],
+      cards: [
+        card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+          floatingStayOption('alpha', { perNight: 110 }),
+        ]),
+        card('c-b', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 2 }, [
+          stayOption('bravo', { checkIn: '2026-09-29', checkOut: '2026-10-02' }),
+        ]),
+      ],
+    });
+    // 2 nights before the split plus the 3 booked nights after it.
+    expect(nightsBySegment(t).par).toBe(5);
+  });
+
+  it('holds the place open long enough for a booked stay in the middle', () => {
+    const t = trip({
+      segments: [segment('par', 'Paris', { min: 1, ideal: 1, max: 9 })],
+      cards: [
+        card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+          floatingStayOption('alpha', { perNight: 110 }),
+        ]),
+        card('c-b', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 2 }, [
+          stayOption('bravo', { checkIn: '2026-09-29', checkOut: '2026-10-01' }),
+        ]),
+        card('c-c', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 4 }, [
+          floatingStayOption('charlie', { perNight: 90 }),
+        ]),
+      ],
+    });
+    // Ideal is 1 night, but 2 nights before the booking plus its own 2 cannot be squeezed below 4.
+    expect(nightsBySegment(t).par).toBeGreaterThanOrEqual(4);
+    expect(schedule(t).conflicts).toEqual([]);
+  });
+
+  it('raises a conflict rather than clipping a booked stay that will not fit', () => {
+    const t = trip({
+      segments: [segment('par', 'Paris', { min: 1, ideal: 2, max: 3 })],
+      cards: [
+        card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+          floatingStayOption('alpha', { perNight: 110 }),
+        ]),
+        card('c-b', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 2 }, [
+          stayOption('bravo', { checkIn: '2026-09-29', checkOut: '2026-10-02' }),
+        ]),
+        card('c-c', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 5 }, [
+          floatingStayOption('charlie', { perNight: 90 }),
+        ]),
+      ],
+    });
+    expect(schedule(t).conflicts.map((c) => c.code)).toContain('INSUFFICIENT_TIME');
+  });
+});
+
 describe('overnight transit', () => {
   it('pushes the downstream segment a day later', () => {
     const build = (nightsInTransit: 0 | 1) =>

@@ -144,6 +144,43 @@ describe('UNCOVERED_NIGHT', () => {
     });
     expect(codes(t)).not.toContain('UNCOVERED_NIGHT');
   });
+
+  it('flags the tail of a split stay while nothing is chosen for it', () => {
+    const t = trip({
+      anchorDate: '2026-09-27',
+      segments: [segment('par', 'Paris', { min: 5, ideal: 5, max: 5 })],
+      cards: [
+        card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+          floatingStayOption('Hotel Alpha', { perNight: 110 }),
+        ]),
+        card('c-b', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 2 }, [], {
+          selected: null,
+        }),
+      ],
+    });
+    const conflict = detectCompatibilityConflicts(t, schedule(t)).find(
+      (c) => c.code === 'UNCOVERED_NIGHT',
+    );
+
+    expect(conflict).toBeDefined();
+    expect(conflict!.message).toContain('3 nights in Paris');
+  });
+
+  it('is satisfied when both halves of a split stay are chosen', () => {
+    const t = trip({
+      anchorDate: '2026-09-27',
+      segments: [segment('par', 'Paris', { min: 5, ideal: 5, max: 5 })],
+      cards: [
+        card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+          floatingStayOption('Hotel Alpha', { perNight: 110 }),
+        ]),
+        card('c-b', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 2 }, [
+          floatingStayOption('Hotel Bravo', { perNight: 150 }),
+        ]),
+      ],
+    });
+    expect(codes(t)).not.toContain('UNCOVERED_NIGHT');
+  });
 });
 
 describe('ORPHANED_CARD', () => {
@@ -165,6 +202,34 @@ describe('ORPHANED_CARD', () => {
     expect(conflict).toBeDefined();
     expect(conflict!.cardIds).toEqual(['c-late']);
     expect(t.cards).toHaveLength(1);
+  });
+
+  it('flags the tail of a split stay the place no longer reaches, and names the place', () => {
+    const t = trip({
+      anchorDate: '2026-09-27',
+      segments: [segment('par', 'Paris', { min: 2, ideal: 2, max: 5 })],
+      cards: [
+        card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+          floatingStayOption('Hotel Alpha', { perNight: 110 }),
+        ]),
+        card('c-b', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 3 }, [
+          floatingStayOption('Hotel Bravo', { perNight: 150 }),
+        ]),
+      ],
+    });
+    const conflict = detectCompatibilityConflicts(t, schedule(t)).find(
+      (c) => c.code === 'ORPHANED_CARD',
+    );
+
+    expect(conflict).toBeDefined();
+    expect(conflict!.cardIds).toEqual(['c-b']);
+    // A stay that lost its nights is not an activity without a day. It has to say so, and it has to
+    // say where, or the user cannot find the thing that broke.
+    expect(conflict!.message).toContain('Hotel Bravo');
+    expect(conflict!.message).toContain('Paris');
+    expect(conflict!.message).toContain('nights');
+    expect(conflict!.segmentIds).toEqual(['par']);
+    expect(conflict!.flexible.segmentIds).toEqual(['par']);
   });
 });
 

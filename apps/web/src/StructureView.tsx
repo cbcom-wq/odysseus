@@ -1,5 +1,5 @@
 import type { CardAnchor, CardKind, PlacedCard, Schedule, Trip } from '@odysseus/domain';
-import { addDays } from '@odysseus/domain';
+import { addDays, stayNights, staysInOrder } from '@odysseus/domain';
 import { money, shortDate } from './format.js';
 import { TravelCard } from './TravelCard.js';
 
@@ -21,6 +21,20 @@ const REASON_TEXT: Record<string, string> = {
 };
 
 const STAY_KINDS: readonly CardKind[] = ['lodging', 'note'];
+
+/**
+ * Which nights of the stay a hotel covers.
+ *
+ * The single-hotel case says so outright. That is the default and the thing most worth being
+ * unambiguous about: one decision, the whole stay, not one decision per night.
+ */
+function nightsLabel(days: readonly number[], startDay: number, only: boolean): string {
+  if (days.length === 0) return 'No nights left';
+  const from = days[0]! - startDay + 1;
+  const to = days[days.length - 1]! - startDay + 1;
+  if (only) return `All ${days.length} night${days.length === 1 ? '' : 's'}`;
+  return from === to ? `Night ${from}` : `Nights ${from}–${to}`;
+}
 const DAY_KINDS: readonly CardKind[] = ['activity', 'dining', 'transport'];
 const LEG_KINDS: readonly CardKind[] = ['flight', 'transport'];
 
@@ -37,6 +51,7 @@ export function StructureView({
   onAddStop,
   onRemoveStop,
   onMoveStop,
+  onSplitStay,
 }: {
   trip: Trip;
   schedule: Schedule;
@@ -50,6 +65,7 @@ export function StructureView({
   onAddStop: (name: string, atIndex?: number) => void;
   onRemoveStop: (segmentId: string) => void;
   onMoveStop: (segmentId: string, delta: number) => void;
+  onSplitStay: (segmentId: string, fromNight: number) => void;
 }) {
   /**
    * What this stop costs — what you spend *at* it, not the fare that got you there.
@@ -75,6 +91,22 @@ export function StructureView({
   const promptStop = (atIndex?: number) => {
     const name = window.prompt('Where to?');
     if (name?.trim()) onAddStop(name.trim(), atIndex);
+  };
+
+  const nights = stayNights(trip, schedule);
+
+  /**
+   * Split a stay from a chosen night on.
+   *
+   * Nights are counted the way a traveller counts them, from one, and the first night is excluded
+   * because moving on the night you arrive is not a change of hotel, it is a different hotel.
+   */
+  const promptSplit = (segmentId: string, total: number) => {
+    const answer = window.prompt(`Change hotels from which night? (2–${total})`);
+    if (answer === null) return;
+    const night = Number(answer.trim());
+    if (!Number.isInteger(night) || night < 2 || night > total) return;
+    onSplitStay(segmentId, night - 1);
   };
 
   const renderLeg = (connectionId: string | undefined, label: string) => {
@@ -124,8 +156,12 @@ export function StructureView({
 
         const pinned = scheduled.reason === 'pinned-by-option';
         const wanted = segment.duration.ideal;
+        // Lodging comes from the trip rather than the placed cards so a stay you have just split
+        // off is visible on the nights it owns before anything has been chosen for it.
+        const stays = staysInOrder(trip, segment.id);
         const cards = placed.filter(
           (p) =>
+            p.card.kind !== 'lodging' &&
             (p.card.anchor.kind === 'segment' || p.card.anchor.kind === 'segment-day') &&
             p.card.anchor.segmentId === segment.id,
         );
@@ -202,6 +238,24 @@ export function StructureView({
               </div>
 
               <div className="seg__cards">
+                {stays.map((stayCard) => (
+                  <div key={stayCard.id} className="stayrange">
+                    <span className="stayrange__nights">
+                      {nightsLabel(
+                        nights.get(stayCard.id) ?? [],
+                        scheduled.startDay,
+                        stays.length === 1,
+                      )}
+                    </span>
+                    <TravelCard
+                      card={stayCard}
+                      trip={trip}
+                      selected={stayCard.id === selectedCardId}
+                      conflicted={conflictedCardIds.has(stayCard.id)}
+                      onSelect={onSelectCard}
+                    />
+                  </div>
+                ))}
                 {cards.map((p) => (
                   <TravelCard
                     key={p.card.id}
@@ -212,13 +266,24 @@ export function StructureView({
                     onSelect={onSelectCard}
                   />
                 ))}
-                <button
-                  type="button"
-                  className="add"
-                  onClick={() => onAdd({ kind: 'segment', segmentId: segment.id }, STAY_KINDS)}
-                >
-                  + Somewhere to stay
-                </button>
+                {stays.length === 0 ? (
+                  <button
+                    type="button"
+                    className="add"
+                    onClick={() => onAdd({ kind: 'segment', segmentId: segment.id }, STAY_KINDS)}
+                  >
+                    + Somewhere to stay
+                  </button>
+                ) : scheduled.nights > 1 ? (
+                  <button
+                    type="button"
+                    className="add"
+                    onClick={() => promptSplit(segment.id, scheduled.nights)}
+                    title={`Stay somewhere else partway through ${segment.location.name}`}
+                  >
+                    + Change hotels partway
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="add"

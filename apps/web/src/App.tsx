@@ -3,7 +3,6 @@ import type {
   Card,
   CardAnchor,
   CardKind,
-  OptionTiming,
   PlanningState,
   RankingPreset,
   Trip,
@@ -17,7 +16,6 @@ import {
   detectCompatibilityConflicts,
   fareGroupPartners,
   kindsForAnchor,
-  linkReturnLeg,
   moveCardToDay,
   moveSegment,
   nextCardId,
@@ -28,12 +26,13 @@ import {
   removeSegment,
   schedule as runSchedule,
   selectOptionInTrip,
+  splitStay,
   transitionCardInTrip,
   updateOption,
 } from '@odysseus/domain';
 import type { ExtractedFields } from '@odysseus/extraction';
-import { toDraftPatch } from '@odysseus/extraction';
-import { useEffect, useMemo, useState } from 'react';
+import { describeExtractionError, toDraftPatch } from '@odysseus/extraction';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CardDraft, DayChoice } from './CardEditor.js';
 import { CardEditor, draftFromOption, emptyDraft, optionFrom } from './CardEditor.js';
 import { CreateTripDialog } from './CreateTripDialog.js';
@@ -44,6 +43,10 @@ import { SaveStatus } from './SaveStatus.js';
 import { SettingsDialog } from './SettingsDialog.js';
 import { StructureView } from './StructureView.js';
 import { dateRange, money, shortDate, tripSubtitle } from './format.js';
+import type { LinkedImport } from './import-fares.js';
+import { linkImportedFares } from './import-fares.js';
+import { applyDiscovery } from './discover.js';
+import { useDiscovery } from './useDiscovery.js';
 import { useExtractor } from './useExtractor.js';
 import { useSettingsStore } from './useSettingsStore.js';
 import { useTripStore } from './useTripStore.js';
@@ -146,6 +149,47 @@ function Workspace({
   const [reading, setReading] = useState(false);
 
   const extractor = useExtractor(apiKey);
+  const discovery = useDiscovery();
+
+  // A search runs for minutes, and the trip may be edited while it does. Landing its results on
+  // the trip as it was when the button was clicked would silently undo everything since, so the
+  // completion reads the trip as it is *now*.
+  const tripNow = useRef(trip);
+  tripNow.current = trip;
+
+  const findOptions = async (cardId: string) => {
+    const card = trip.cards.find((c) => c.id === cardId);
+    if (!card) return;
+    try {
+      const found = await discovery.find(trip, card);
+      if (found.length === 0) {
+        setNotice(
+          "Claude searched but didn't find anything it could stand behind. Try adding what you " +
+            'find by hand.',
+        );
+        return;
+      }
+      // Minutes have passed and the app stayed live. The slot these were found for may not be
+      // there any more, and "Found 0 options" would explain none of that.
+      if (!tripNow.current.cards.some((c) => c.id === cardId)) {
+        setNotice(
+          `Claude found ${found.length} option${found.length === 1 ? '' : 's'}, but the card they ` +
+            'were for is gone. Nothing was added.',
+        );
+        return;
+      }
+
+      const outcome = applyDiscovery(tripNow.current, cardId, found);
+      update(outcome.trip);
+      reportLinking(outcome);
+      setNotice(
+        `Found ${outcome.added} option${outcome.added === 1 ? '' : 's'} — nothing has been ` +
+          'chosen for you.',
+      );
+    } catch (error) {
+      setNotice(describeExtractionError(error).message);
+    }
+  };
 
   /** Opening a different editor starts a different card. Nothing from the last one carries over. */
   const openEditor = (next: Editor | null) => {
@@ -218,6 +262,20 @@ function Workspace({
   };
 
   /**
+   * Move hotels partway through a stay.
+   *
+   * Where you sleep is one decision for a whole place, so this is the only way a second hotel gets
+   * into one. The new slot takes the nights from here to the end of the stay and the previous hotel
+   * gives up exactly those; deleting it hands them straight back.
+   */
+  const changeHotelsFrom = (segmentId: string, fromNight: number) => {
+    const after = splitStay(trip, segmentId, fromNight);
+    if (after === trip) return;
+    update(after);
+    setSelectedCardId(after.cards[after.cards.length - 1]!.id);
+  };
+
+  /**
    * Pulling a duration control changes how long you *want* to stay, not the range itself.
    *
    * Collapsing the range would destroy the flexibility the traveller authored, and it would be a
@@ -240,6 +298,17 @@ function Workspace({
         s.id === segmentId ? { ...s, duration: { ...s.duration, ideal: nights } } : s,
       ),
     });
+  };
+
+  /** Say what building the second leg did, when it did something the traveller has to know about. */
+  const reportLinking = (linked: LinkedImport) => {
+    if (linked.promptCardId !== null) setReturnPrompt(linked.promptCardId);
+    else if (linked.occupied) {
+      setNotice(
+        'That looked like a return fare, but the leg home already has a flight. The whole ' +
+          'price stayed on this one.',
+      );
+    }
   };
 
   const saveFromEditor = (draft: CardDraft) => {
@@ -275,48 +344,28 @@ function Workspace({
         ...(options.length === 1 ? { selectedOptionId: option.id } : {}),
       };
 
-      // A flight listing quotes the return price against the outbound times. Saving it as one card
-      // would leave the trip holding a return fare with no return, so the second leg is built here
-      // rather than waiting for the traveller to notice. Every round-trip candidate gets its own.
-      let next = addCard(trip, card);
-      let promptFor: string | null = null;
-      let occupied = false;
+      const sources = [pastedFields, ...extras];
+      const linked = linkImportedFares(
+        addCard(trip, card),
+        cardId,
+        options.map((opt, i) => ({ optionId: opt.id, source: sources[i] ?? null })),
+      );
 
-      if (card.kind === 'flight') {
-        const sources = [pastedFields, ...extras];
-        options.forEach((opt, i) => {
-          const source = sources[i];
-          if (source?.roundTrip !== true) return;
-          const linked = linkReturnLeg(next, cardId, opt.id, {
-            ...(source.returnDate === null ? {} : { returnDate: source.returnDate }),
-            ...(returnTimingFrom(source) === undefined
-              ? {}
-              : { returnTiming: returnTimingFrom(source)! }),
-          });
-          if (linked.kind === 'linked') {
-            next = linked.trip;
-            // Only ask when the leg went in blank. A checkout page states both legs, and asking for
-            // what the traveller just pasted is worse than not asking at all.
-            if (!linked.complete) promptFor = linked.returnCardId;
-          } else if (linked.kind === 'occupied') {
-            occupied = true;
-          }
-        });
-      }
-
-      if (promptFor !== null) setReturnPrompt(promptFor);
-      else if (occupied) {
-        setNotice(
-          'That looked like a return fare, but the leg home already has a flight. The whole ' +
-            'price stayed on this one.',
-        );
-      }
-
-      update(next);
+      reportLinking(linked);
+      update(linked.trip);
       setSelectedCardId(cardId);
     } else if (editor.mode === 'new-option') {
       const card = trip.cards.find((c) => c.id === editor.cardId);
-      if (card) update(addOption(trip, card.id, optionFrom(draft, nextOptionId(card), trip.travelers)));
+      if (card) {
+        const option = optionFrom(draft, nextOptionId(card), trip.travelers);
+        // The second flight a traveller compares is a round trip as often as the first was, and it
+        // arrives here rather than through a new card. It needs its own leg home for the same reason.
+        const linked = linkImportedFares(addOption(trip, card.id, option), card.id, [
+          { optionId: option.id, source: pastedFields },
+        ]);
+        reportLinking(linked);
+        update(linked.trip);
+      }
     } else {
       update(updateOption(trip, editor.cardId, optionFrom(draft, editor.optionId, trip.travelers)));
     }
@@ -591,6 +640,7 @@ function Workspace({
               onAdd={(anchor) =>
                 openEditor({ mode: 'new-card', anchor, kinds: kindsForAnchor(anchor.kind) })
               }
+              onSplitStay={changeHotelsFrom}
             />
           ) : (
             <StructureView
@@ -608,6 +658,7 @@ function Workspace({
               onMoveStop={(id, delta) =>
                 applyEdit(moveSegment(trip, id, delta), 'Reordered your stops.')
               }
+              onSplitStay={changeHotelsFrom}
             />
           )}
         </div>
@@ -629,6 +680,8 @@ function Workspace({
           update(removeCard(trip, cardId));
           setSelectedCardId(undefined);
         }}
+        {...(discovery.available ? { onFindOptions: (cardId: string) => void findOptions(cardId) } : {})}
+        searchingCardId={discovery.searchingCardId}
       />
 
       {creating ? (
@@ -687,25 +740,6 @@ function Workspace({
       ) : null}
     </div>
   );
-}
-
-/**
- * The return leg's own timing, when the source gave it.
- *
- * A checkout page states both legs in full. Building a blank placeholder from that would throw away
- * details the traveller can see on screen and then ask them to type it back in. A date is the one
- * thing a journey cannot do without, so without it there is nothing to pin and the leg stays blank.
- */
-function returnTimingFrom(fields: ExtractedFields): OptionTiming | undefined {
-  if (fields.returnDate === null || fields.returnDepartTime === null) return undefined;
-  return {
-    kind: 'journey',
-    departDate: fields.returnDate,
-    departTime: fields.returnDepartTime,
-    arriveTime: fields.returnArriveTime ?? fields.returnDepartTime,
-    nightsInTransit: fields.returnOvernight === true ? 1 : 0,
-    durationMinutes: fields.returnDurationMinutes ?? 120,
-  };
 }
 
 /**

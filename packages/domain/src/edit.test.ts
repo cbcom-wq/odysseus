@@ -5,8 +5,10 @@ import {
   addSegment,
   moveCardToDay,
   moveSegment,
+  removeCard,
   removeOption,
   removeSegment,
+  splitStay,
   syncConnections,
   updateOption,
 } from './edit.js';
@@ -280,5 +282,52 @@ describe('moveCardToDay', () => {
       kind: 'segment',
       segmentId: 'par',
     });
+  });
+});
+
+describe('splitting a stay', () => {
+  const paris = trip({
+    anchorDate: '2026-09-27',
+    segments: [segment('par', 'Paris', { min: 5, ideal: 5, max: 5 })],
+    cards: [
+      card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+        floatingStayOption('alpha', { perNight: 110 }),
+      ]),
+    ],
+  });
+
+  it('adds a stay starting on the chosen night, with nothing decided for it yet', () => {
+    const split = splitStay(paris, 'par', 2);
+    const added = split.cards[split.cards.length - 1]!;
+
+    expect(split.cards).toHaveLength(2);
+    expect(added.kind).toBe('lodging');
+    expect(added.state).toBe('unplanned');
+    expect(added.options).toEqual([]);
+    expect(added.anchor).toEqual({ kind: 'segment', segmentId: 'par', fromNight: 2 });
+  });
+
+  it('hands the nights after the split to the new stay', () => {
+    const split = splitStay(paris, 'par', 2);
+    const first = placeCards(split, schedule(split)).find((p) => p.card.id === 'c-a');
+    expect(first!.days).toEqual([0, 1]);
+  });
+
+  it('refuses to split at the first night, which would be no split at all', () => {
+    expect(splitStay(paris, 'par', 0)).toBe(paris);
+  });
+
+  it('refuses to split where a stay already starts', () => {
+    const once = splitStay(paris, 'par', 2);
+    expect(splitStay(once, 'par', 2)).toBe(once);
+  });
+
+  it('gives the nights back to the earlier stay when the split is removed', () => {
+    const split = splitStay(paris, 'par', 2);
+    const added = split.cards[split.cards.length - 1]!;
+    const undone = removeCard(split, added.id);
+
+    const first = placeCards(undone, schedule(undone)).find((p) => p.card.id === 'c-a');
+    expect(first!.days).toEqual([0, 1, 2, 3, 4]);
   });
 });

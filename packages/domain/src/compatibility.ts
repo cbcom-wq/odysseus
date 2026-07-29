@@ -44,7 +44,7 @@ export function detectCompatibilityConflicts(trip: Trip, schedule: Schedule): Co
   const placed = placeCards(trip, schedule);
   const conflicts: Conflict[] = [];
 
-  conflicts.push(...orphanedCards(placed));
+  conflicts.push(...orphanedCards(trip, placed));
   conflicts.push(...uncoveredNights(trip, schedule, placed));
   conflicts.push(...unlinkedStops(trip, placed));
   conflicts.push(...incompleteLegs(trip, placed));
@@ -129,20 +129,31 @@ function unlinkedStops(trip: Trip, placed: readonly PlacedCard[]): Conflict[] {
   ];
 }
 
-function orphanedCards(placed: readonly PlacedCard[]): Conflict[] {
+function orphanedCards(trip: Trip, placed: readonly PlacedCard[]): Conflict[] {
   return placed
     .filter((p) => p.orphaned)
-    .map((p) => ({
-      code: 'ORPHANED_CARD' as const,
-      severity: 'warning' as const,
-      message: `${label(p)} no longer has a day to sit on — the stay got shorter than the day it was planned for.`,
-      segmentIds: p.card.anchor.kind === 'segment-day' ? [p.card.anchor.segmentId] : [],
-      cardIds: [p.card.id],
-      flexible: {
-        segmentIds: p.card.anchor.kind === 'segment-day' ? [p.card.anchor.segmentId] : [],
+    .map((p) => {
+      const anchor = p.card.anchor;
+      const segmentIds =
+        anchor.kind === 'segment-day' || anchor.kind === 'segment' ? [anchor.segmentId] : [];
+      const place = trip.segments.find((s) => s.id === segmentIds[0])?.location.name ?? 'the stay';
+
+      // A stay that lost its nights is a different thing from an activity that lost its day, and it
+      // has to read like one — with the place named, or the user cannot find what broke.
+      const message =
+        p.card.kind === 'lodging'
+          ? `${label(p)} has no nights left — ${place} got shorter than the night it was due to start on.`
+          : `${label(p)} no longer has a day to sit on — the stay got shorter than the day it was planned for.`;
+
+      return {
+        code: 'ORPHANED_CARD' as const,
+        severity: 'warning' as const,
+        message,
+        segmentIds,
         cardIds: [p.card.id],
-      },
-    }));
+        flexible: { segmentIds, cardIds: [p.card.id] },
+      };
+    });
 }
 
 function uncoveredNights(

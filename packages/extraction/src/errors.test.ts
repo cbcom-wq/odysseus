@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it } from 'vitest';
-import { CliFailedError, CliUnavailableError } from './cli-invocation.js';
+import { CliFailedError, CliTimedOutError, CliUnavailableError } from './cli-invocation.js';
 import { MissingKeyError, RefusalError, describeExtractionError } from './errors.js';
 
 /**
@@ -86,6 +86,20 @@ describe('describeExtractionError', () => {
     expect(describeExtractionError(new CliFailedError('credit balance too low')).failure).toBe(
       'unreadable',
     );
+  });
+
+  it('says a run gave up on time rather than blaming what it was reading', () => {
+    // A search that ran for a quarter of an hour and was killed is not an unreadable source, and
+    // telling the user to "fill it in by hand" says nothing about what actually happened.
+    const { failure, message } = describeExtractionError(new CliTimedOutError());
+    expect(failure).toBe('timed-out');
+    expect(message).toMatch(/too long|took longer/i);
+
+    // Same over the IPC boundary, where the class is gone and only the name survives.
+    const overIpc = new Error(
+      "Error invoking remote method 'search:options': CliTimedOutError: Claude Code took too long.",
+    );
+    expect(describeExtractionError(overIpc).failure).toBe('timed-out');
   });
 
   it('never leaves the user without a way forward', () => {

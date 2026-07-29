@@ -9,3 +9,5 @@ export * from './extract-image.js';
 export * from './extract-text.js';
 export * from './extract-url.js';
 export * from './schema.js';
+export * from './search-invocation.js';
+export * from './search-schema.js';

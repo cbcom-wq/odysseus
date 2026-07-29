@@ -29,7 +29,8 @@ export type CardKind = 'flight' | 'lodging' | 'transport' | 'activity' | 'dining
 
 export type PlanningState = 'unplanned' | 'exploring' | 'selected' | 'locked' | 'booked';
 
-export type OptionSource = 'fixture' | 'user';
+/** `discovered` options were found by a search the user asked for; they never outrank `user` ones. */
+export type OptionSource = 'fixture' | 'user' | 'discovered';
 
 /** Nights a segment may run for. `min <= ideal <= max`. */
 export interface DurationRange {
@@ -43,9 +44,16 @@ export interface DurationRange {
  *
  * Always relative, never an absolute date — an absolute anchor breaks the moment an upstream option
  * changes and the trip reflows.
+ *
+ * `fromNight` is the night of the stay a lodging starts on, counted from arrival; absent means the
+ * first. **No end is stored.** A lodging runs until the next lodging in the same stop begins, or
+ * until the stay ends if it is the last. That omission is the whole design: stretching Paris from
+ * five nights to six lengthens the last stay with no code doing anything, and there is no stored end
+ * that can disagree with the schedule. Interpreted for lodging only — a note on a segment covers the
+ * whole stay regardless.
  */
 export type CardAnchor =
-  | { readonly kind: 'segment'; readonly segmentId: string }
+  | { readonly kind: 'segment'; readonly segmentId: string; readonly fromNight?: number }
   | { readonly kind: 'segment-day'; readonly segmentId: string; readonly dayOffset: number }
   | { readonly kind: 'connection'; readonly connectionId: string };
 
@@ -171,6 +179,12 @@ export interface Trip {
    * bolted on.
    */
   readonly anchorDate?: IsoDate;
+  /**
+   * When a still-undated trip may start: the first night falls somewhere inside it. A planning
+   * constraint for searches, not a scheduling input — meaningful only while `anchorDate` is absent,
+   * and superseded the moment a date is declared or a flight pins the calendar.
+   */
+  readonly dateWindow?: { readonly earliest: IsoDate; readonly latest: IsoDate };
   /** Total nights the trip may run for. `min === max` when the length is exact. */
   readonly length: { readonly min: number; readonly max: number };
   readonly currency: string;

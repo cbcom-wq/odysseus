@@ -92,6 +92,39 @@ describe('per-night costs follow the schedule', () => {
   });
 });
 
+describe('a stay split between two hotels', () => {
+  // Two hotels in one place used to charge both nightly rates on every night of the stay. Each one
+  // is billed for the nights it actually holds and no others.
+  const t = trip({
+    anchorDate: '2026-09-27',
+    segments: [segment('par', 'Paris', { min: 5, ideal: 5, max: 5 })],
+    cards: [
+      card('c-a', 'lodging', { kind: 'segment', segmentId: 'par' }, [
+        floatingStayOption('alpha', { perNight: 110 }),
+      ]),
+      card('c-b', 'lodging', { kind: 'segment', segmentId: 'par', fromNight: 2 }, [
+        floatingStayOption('bravo', { perNight: 150 }),
+      ]),
+    ],
+  });
+  const budget = computeBudget(t, schedule(t));
+
+  it('charges each hotel only for its own nights', () => {
+    expect(budget.total).toBe(110 * 2 + 150 * 3);
+  });
+
+  it('bills one hotel per night, never both', () => {
+    for (const day of budget.byDay.slice(0, 5)) {
+      expect(day.lines.filter((l) => l.kind === 'lodging')).toHaveLength(1);
+    }
+  });
+
+  it('switches rate on the night the second hotel starts', () => {
+    expect(budget.byDay[1]!.amount).toBe(110);
+    expect(budget.byDay[2]!.amount).toBe(150);
+  });
+});
+
 describe('orphaned cards', () => {
   it('keeps an activity past the end of a shortened segment out of the day totals', () => {
     const t = trip({

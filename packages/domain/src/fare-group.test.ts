@@ -278,6 +278,26 @@ describe('importing a return fare that only showed the outbound', () => {
     ).not.toContain('INCOMPLETE_LEG');
   });
 
+  // A discovered fare's second half is machine-made too. Stamping it 'user' would let a re-search
+  // immortalize the placeholder as something the traveller typed.
+  it('gives the placeholder the source it is asked for', () => {
+    const result = linkReturnLeg(outboundOnly(), 'card-out', 'out-fare', {
+      returnDate: '2026-09-28',
+      source: 'discovered',
+    });
+    expect(result.kind).toBe('linked');
+    if (result.kind !== 'linked') return;
+
+    const back = result.trip.cards.find((c) => c.id === result.returnCardId)!;
+    expect(back.options[0]!.source).toBe('discovered');
+
+    // Unasked, it stays what it always was.
+    const plain = linkReturnLeg(outboundOnly(), 'card-out', 'out-fare', {});
+    if (plain.kind !== 'linked') throw new Error('setup failed');
+    const plainBack = plain.trip.cards.find((c) => c.id === plain.returnCardId)!;
+    expect(plainBack.options[0]!.source).toBe('user');
+  });
+
   // Halving the fare here would understate the trip by $652, and selecting the placeholder over the
   // flight they already chose would throw that decision away.
   it('leaves the fare whole when the homeward leg already has a chosen flight', () => {

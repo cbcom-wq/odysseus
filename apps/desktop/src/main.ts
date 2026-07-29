@@ -1,11 +1,12 @@
 import { join } from 'node:path';
 import { PRODUCT_NAME, STORAGE_NAMESPACE, WINDOW_TITLE } from '@odysseus/brand';
-import { extractWithCli } from '@odysseus/extraction/node';
+import { extractWithCli, searchWithCli } from '@odysseus/extraction/node';
 import { FileRepository } from '@odysseus/persistence/node';
 import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron';
-import type { BridgeExtractionRequest } from '@odysseus/persistence';
+import type { BridgeExtractionRequest, BridgeSearchRequest } from '@odysseus/persistence';
 import {
   EXTRACT_OPTION,
+  SEARCH_OPTIONS,
   TRIPS_LOAD_ALL,
   TRIPS_REMOVE,
   TRIPS_REVEAL,
@@ -173,6 +174,12 @@ function registerHandlers(): void {
     // website, and a handler that forwards whatever arrives is how that becomes a problem.
     return extractWithCli(readExtractionRequest(request));
   });
+
+  ipcMain.handle(SEARCH_OPTIONS, (_event, request: unknown) => {
+    // Same posture as extraction: everything here becomes part of a CLI prompt, so every field is
+    // checked and capped before a process starts.
+    return searchWithCli(readSearchRequest(request));
+  });
 }
 
 /** The kinds a card can be. Anything else is not something the interface should be asking for. */
@@ -217,6 +224,65 @@ function readExtractionRequest(value: unknown): {
     payload,
     allowedKinds: kinds,
     ...(typeof mediaType === 'string' ? { mediaType } : {}),
+  };
+}
+
+/** Every string here lands in a CLI prompt; the caps stop a renderer bug becoming a novel. */
+const MAX_SEARCH_FIELD_CHARS = 300;
+const MAX_SEARCH_HINTS = 10;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function readSearchRequest(value: unknown): Parameters<typeof searchWithCli>[0] {
+  if (typeof value !== 'object' || value === null) throw new Error('Malformed search request.');
+  const request = value as Partial<BridgeSearchRequest>;
+
+  const shortString = (name: string, v: unknown, cap = MAX_SEARCH_FIELD_CHARS): string => {
+    if (typeof v !== 'string' || v === '' || v.length > cap) {
+      throw new Error(`Malformed search request: ${name}.`);
+    }
+    return v;
+  };
+  const optional = <T>(v: unknown, read: (v: unknown) => T): T | null =>
+    v === undefined || v === null ? null : read(v);
+  const isoDate = (name: string, v: unknown): string => {
+    if (typeof v !== 'string' || !ISO_DATE.test(v)) {
+      throw new Error(`Malformed search request: ${name}.`);
+    }
+    return v;
+  };
+  const boundedInt = (name: string, v: unknown, min: number, max: number): number => {
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) {
+      throw new Error(`Malformed search request: ${name}.`);
+    }
+    return v;
+  };
+
+  const cardKind = shortString('cardKind', request.cardKind, 20);
+  if (!CARD_KINDS.includes(cardKind as CardKind) || cardKind === 'note') {
+    throw new Error('Malformed search request: not a searchable card kind.');
+  }
+
+  const rawHints = Array.isArray(request.hints) ? request.hints : [];
+  const hints = rawHints
+    .filter((h): h is string => typeof h === 'string' && h !== '')
+    .slice(0, MAX_SEARCH_HINTS)
+    .map((h) => h.slice(0, MAX_SEARCH_FIELD_CHARS));
+
+  return {
+    cardKind: cardKind as CardKind,
+    destination: optional(request.destination, (v) => shortString('destination', v)),
+    destinationCode: optional(request.destinationCode, (v) => shortString('destinationCode', v, 20)),
+    origin: optional(request.origin, (v) => shortString('origin', v)),
+    startDate: optional(request.startDate, (v) => isoDate('startDate', v)),
+    endDate: optional(request.endDate, (v) => isoDate('endDate', v)),
+    nights: optional(request.nights, (v) => boundedInt('nights', v, 0, 365)),
+    windowEarliest: optional(request.windowEarliest, (v) => isoDate('windowEarliest', v)),
+    windowLatest: optional(request.windowLatest, (v) => isoDate('windowLatest', v)),
+    lengthMin: optional(request.lengthMin, (v) => boundedInt('lengthMin', v, 0, 365)),
+    lengthMax: optional(request.lengthMax, (v) => boundedInt('lengthMax', v, 0, 365)),
+    travelers: boundedInt('travelers', request.travelers, 1, 20),
+    currency: shortString('currency', request.currency, 8),
+    hints,
   };
 }
 

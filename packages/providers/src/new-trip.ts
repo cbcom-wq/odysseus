@@ -7,6 +7,8 @@ export interface NewTripInput {
   readonly nights: { min: number; max: number };
   readonly destinations: readonly string[];
   readonly startDate?: string;
+  /** When the trip may start, for one still being shaped. Ignored if an exact date was given. */
+  readonly window?: { readonly earliest: string; readonly latest: string };
   readonly currency?: string;
   /**
    * Ids already in use. Identity is derived rather than generated — the domain has no clock and no
@@ -65,6 +67,7 @@ export function buildNewTrip(input: NewTripInput): Trip {
     name: input.name,
     travelers: input.travelers,
     ...(input.startDate ? { anchorDate: input.startDate } : {}),
+    ...(!input.startDate && input.window ? { dateWindow: input.window } : {}),
     length: input.nights,
     currency: input.currency ?? 'USD',
     preferences: { ranking: 'balanced', dayStart: '08:00', dayEnd: '22:00' },
