@@ -1,5 +1,6 @@
 import type { Card, CardAnchor, CardKind, Option, Trip, TripSlots } from '@odysseus/domain';
 import { kindsForAnchor } from '@odysseus/domain';
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 import type { DayChoice } from './CardEditor.js';
 import { optionCost } from './format.js';
@@ -49,14 +50,13 @@ export function tabForKind(kind: CardKind): PanelTab {
  * Reordered, never filtered: a connection legally takes a flight or a train, and filtering would
  * make adding a train from the Flights tab impossible rather than merely unlikely.
  */
-function orderedKinds(anchor: CardAnchor, preferred: CardKind): readonly CardKind[] {
+export function orderedKinds(anchor: CardAnchor, preferred: CardKind): readonly CardKind[] {
   const legal = kindsForAnchor(anchor.kind);
   return legal.includes(preferred) ? [preferred, ...legal.filter((k) => k !== preferred)] : legal;
 }
 
 interface Shared {
   trip: Trip;
-  selectedCardId: string | undefined;
   conflictedCardIds: ReadonlySet<string>;
   onSelectCard: (id: string) => void;
   onAdd: (anchor: CardAnchor, kinds: readonly CardKind[]) => void;
@@ -76,7 +76,6 @@ function Slot({
   slotKey,
   addLabel,
   findLabel,
-  selectedCardId,
   conflictedCardIds,
   onSelectCard,
   onAdd,
@@ -84,6 +83,7 @@ function Slot({
   searchingSlotId,
   canSearch,
   onAddOption,
+  children,
 }: Shared & {
   title: string;
   meta?: string;
@@ -103,6 +103,16 @@ function Slot({
    * belongs on the card already there.
    */
   onAddOption?: (cardId: string) => void;
+  /**
+   * Rendered inside the slot, after its own tools row.
+   *
+   * A stop group (local transport, activities) has a per-stop Find button and, for activities, a
+   * shortlist beneath it. Both belong to *this* stop, not the next one down, so they need to live
+   * inside the same `.slot` element that carries the border rule between stops — a sibling wrapper
+   * would put the rule between a stop and its own contents instead, and would stop `.slot:last-child`
+   * from ever matching, since the wrapper rather than the `.slot` would be the last child.
+   */
+  children?: ReactNode;
 }) {
   const existing = cards.find((c) => c.kind === kind);
   const busy = searchingSlotId !== null;
@@ -125,7 +135,10 @@ function Slot({
               key={card.id}
               card={card}
               trip={trip}
-              selected={card.id === selectedCardId}
+              // Always false: `OptionsPanel` renders `SlotList` only while no card is selected — a
+              // real selection switches it to `CardDetail` instead — so a row here can never be the
+              // selected one.
+              selected={false}
               conflicted={conflictedCardIds.has(card.id)}
               onSelect={onSelectCard}
             />
@@ -165,6 +178,7 @@ function Slot({
           </button>
         )}
       </div>
+      {children}
     </div>
   );
 }
@@ -340,27 +354,35 @@ export function SlotList({
       {slots.activities.map((stop) => {
         const shortlist = shortlists[stop.segmentId] ?? [];
         const busy = shared.searchingSlotId !== null;
+        const searchKey = `activities:${stop.segmentId}`;
         return (
-          <div key={stop.id}>
-            <Slot
-              {...shared}
-              title={stop.placeName}
-              emptyText="Nothing planned here yet."
-              cards={stop.cards}
-              anchor={{ kind: 'segment-day', segmentId: stop.segmentId, dayOffset: 0 }}
-              kind="activity"
-              slotKey={`activities:${stop.segmentId}`}
-              addLabel="+ Add something to do"
-            />
+          <Slot
+            key={stop.id}
+            {...shared}
+            title={stop.placeName}
+            emptyText="Nothing planned here yet."
+            cards={stop.cards}
+            anchor={{ kind: 'segment-day', segmentId: stop.segmentId, dayOffset: 0 }}
+            kind="activity"
+            slotKey={searchKey}
+            addLabel="+ Add something to do"
+          >
             {shared.canSearch ? (
               <div className="slot__tools">
                 <button
                   type="button"
                   className="btn"
                   disabled={busy}
+                  // No booked branch here, unlike the slot-shaped Find button above: a stop group has
+                  // no single card whose state could be booked. Just running-elsewhere or idle.
+                  title={
+                    busy && shared.searchingSlotId !== searchKey
+                      ? 'Another search is running — one at a time.'
+                      : 'Claude searches the live web and brings back candidates with source links'
+                  }
                   onClick={() => onFindThingsToDo(stop.segmentId)}
                 >
-                  {shared.searchingSlotId === `activities:${stop.segmentId}`
+                  {shared.searchingSlotId === searchKey
                     ? 'Searching the web…'
                     : `Find things to do in ${stop.placeName}`}
                 </button>
@@ -384,7 +406,7 @@ export function SlotList({
                 ))}
               </>
             ) : null}
-          </div>
+          </Slot>
         );
       })}
     </>

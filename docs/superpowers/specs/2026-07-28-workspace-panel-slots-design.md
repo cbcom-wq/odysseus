@@ -52,23 +52,40 @@ whole-trip impact, source caveats, add/edit/remove — all of it moves across as
 | Activities | existing `activity`, `dining` and `note` cards grouped by stop | `Sao Paulo · nothing planned` |
 
 A filled row shows the chosen option's title and price, or says the card has options but nothing
-chosen. Every row offers **Add one you found**; on desktop, a slot-shaped row also offers **Find
-options with Claude**. Rows carry the same conflict badging the day grid uses, so an orphaned or
-clashing card is visible from the list.
+chosen. On desktop, a slot-shaped row also offers **Find options with Claude**. What Add offers
+depends on whether the row already has a card: an empty slot row and every stop-group row (local
+transport, activities) offer **Add one you found**, which creates a new card on the anchor. A
+*filled* slot-shaped row — a leg or a stay — offers **Add another option** instead, which adds a
+second candidate to the card already there rather than a second card on the same anchor. Pressing
+Add on a row already showing Hotel Alpha means another candidate for that slot, not a second stay
+claiming nights the first one already covers — that ambiguity is exactly what a stop-group row does
+not have, since a museum and a beach day are different things, not rival answers to one question.
+Rows carry the same conflict badging the day grid uses, so an orphaned or clashing card is visible
+from the list.
 
 ### Adding by hand from a slot row
 
-**Add one you found** opens the existing `CardEditor` on the slot's anchor, through the same
-`new-card` path the day grid uses. The kind list is `kindsForAnchor` for that anchor, reordered so
-the tab's own kind comes first — reordered, not filtered, or adding a train from the Flights tab
-would become impossible. Where the anchor is a `segment-day`, the editor's day picker owns the day,
-as it already does.
+**Add one you found**, on an empty slot row or a stop group, opens the existing `CardEditor` on the
+slot's anchor, through the same `new-card` path the day grid uses. The kind list is `kindsForAnchor`
+for that anchor, reordered so the tab's own kind comes first — reordered, not filtered, or adding a
+train from the Flights tab would become impossible. Where the anchor is a `segment-day`, the
+editor's day picker owns the day, as it already does.
+
+**Add another option**, on a filled slot-shaped row, instead opens the editor through the
+`new-option` path against the card already there. There is only one kind it could possibly be — the
+kind of the card it is joining — so `orderedKinds` does not apply on this path; the reordering
+problem only exists when a kind still has to be chosen.
 
 ### Slot identity
 
 A filled slot is identified by its card id. An empty one is identified by its structural element:
-`connection:<connectionId>`, `stay:<segmentId>`, `stop:<segmentId>`. These ids key React rows and,
-during a search, the busy indicator.
+`connection:<connectionId>`, `stay:<segmentId>`, `stop:<segmentId>`. These ids key React rows.
+
+The busy key is not quite the same string. A connection's is suffixed with the tab's kind —
+`connection:<connectionId>:flight` or `connection:<connectionId>:transport` — because one leg can
+be busy under one tab while merely blocked under the other: searching it as a flight does not stop
+a traveller from also asking whether a train gets them there, and a single unsuffixed key would make
+the two tabs fight over one busy flag for what are, to the search, two different questions.
 
 ### Tabs and selection
 
@@ -115,10 +132,11 @@ kind `activity` anchored to the `segment`, which yields a query carrying the pla
 stay's dates. `KIND_TASK` already covers `activity`; nothing in extraction changes.
 
 Results land in a **shortlist** under that stop. Each candidate shows its title, price, detail and
-source link, and carries a day picker with **Add to day…** that creates one `activity` card on the
-day chosen. **The picker has no default and adding is blocked until a day is chosen.** An activity
-silently landing on day one is the bug that put a 09:30 tour on the morning of an 08:45 landing;
-the day picker in the detail view exists because of it, and this must not reintroduce it.
+source link, alongside a placeholder-only day picker reading "Which day?" and a separate **Add to
+trip** button; choosing a day creates one `activity` card on the day chosen. **The picker has no
+default and adding is blocked until a day is chosen.** An activity silently landing on day one is
+the bug that put a 09:30 tour on the morning of an 08:45 landing; the day picker in the detail view
+exists because of it, and this must not reintroduce it.
 
 The accepted candidate *is* selected on its new card, unlike an option landing from a slot search.
 Nothing was decided for the traveller: they picked this thing and named the day it happens on, which
@@ -127,6 +145,17 @@ decision.
 
 The shortlist is session state. It does not survive a reload, and the empty-shortlist copy says so.
 Dismissing a candidate removes it from the list and nothing else.
+
+Candidate ids are re-stamped per search batch (`stampCandidates`), not kept as the search returned
+them. The search mints its ids against a throwaway card — the same ephemeral-card trick as an
+options search, described above — and that card is identical on every "find things to do" call, so
+every batch comes back with the same `pending-opt-1`, `pending-opt-2`, … no matter what it actually
+found. `CandidateRow` keys on `candidate.id`, so without re-stamping, a second search's rows would
+reuse the first search's React instances, and the day already chosen on the old candidate would
+survive onto whatever different activity the new search put in its place. That is exactly what the
+no-default rule above exists to prevent, so it would otherwise look like it survives a re-search for
+free when it does not; `stampCandidates` gives each batch ids unique enough that React never
+confuses the two.
 
 The conversion — candidate plus segment and day offset to a card — lives in
 `apps/web/src/shortlist.ts` as a pure function, for the same reason as `slot-search.ts`.

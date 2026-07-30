@@ -97,7 +97,6 @@ export function OptionsPanel({
             trip={trip}
             slots={slots}
             tab={tab}
-            selectedCardId={selectedCardId}
             conflictedCardIds={conflictedCardIds}
             onSelectCard={onSelectCard}
             onAdd={onAddToSlot}

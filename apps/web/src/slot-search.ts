@@ -53,7 +53,7 @@ export function slotSearchTarget(request: SlotSearchRequest): SlotSearchTarget {
 }
 
 /** Whether the thing a card is pinned to is still part of the trip. */
-export function anchorExists(trip: Trip, anchor: CardAnchor): boolean {
+function anchorExists(trip: Trip, anchor: CardAnchor): boolean {
   if (anchor.kind === 'connection') {
     return trip.connections.some((c) => c.id === anchor.connectionId);
   }
