@@ -769,12 +769,95 @@ button {
   margin-top: 12px;
 }
 
-.panel__empty {
-  padding: 40px 20px;
-  text-align: center;
-  color: var(--ink-3);
+/* ---------- panel tabs and slot list ---------- */
+
+.panel__tabs {
+  display: flex;
+  gap: 1px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel__tab {
+  flex: 1;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 11px 2px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.panel__tab[aria-selected='true'] {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.panel__back {
+  display: block;
+  background: none;
+  border: 0;
+  padding: 0 0 9px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.panel__back:hover {
+  color: var(--accent);
+}
+
+.slot {
+  border-bottom: 1px solid var(--line);
+  padding: 13px 0;
+}
+
+.slot:last-child {
+  border-bottom: 0;
+}
+
+.slot__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.slot__title {
   font-size: 13px;
-  line-height: 1.6;
+  font-weight: 600;
+}
+
+.slot__meta {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.slot__empty {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.slot__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.slot__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.slot__tools .btn {
+  padding: 5px 9px;
+  font-size: 12px;
 }
 
 /* ---------- option row ---------- */
@@ -1382,4 +1465,56 @@ button {
 
 .link--rail:hover {
   color: #cfdbe0;
+}
+
+.cand {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 9px 11px;
+  margin-bottom: 6px;
+}
+
+.cand__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cand__title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cand__cost {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cand__detail {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 3px;
+}
+
+.cand__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cand__tools .select {
+  flex: 1;
+  min-width: 108px;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.cand__tools .btn {
+  padding: 5px 9px;
+  font-size: 12px;
 }

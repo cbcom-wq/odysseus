@@ -3,6 +3,7 @@ import type {
   Card,
   CardAnchor,
   CardKind,
+  Option,
   PlanningState,
   RankingPreset,
   Trip,
@@ -28,6 +29,7 @@ import {
   selectOptionInTrip,
   splitStay,
   transitionCardInTrip,
+  tripSlots,
   updateOption,
 } from '@odysseus/domain';
 import type { ExtractedFields } from '@odysseus/extraction';
@@ -42,11 +44,15 @@ import { OptionsPanel } from './OptionsPanel.js';
 import { PasteImportBox } from './PasteImportBox.js';
 import { SaveStatus } from './SaveStatus.js';
 import { SettingsDialog } from './SettingsDialog.js';
+import type { PanelTab } from './SlotList.js';
+import { tabForKind } from './SlotList.js';
 import { StructureView } from './StructureView.js';
 import { dateRange, money, shortDate, tripSubtitle } from './format.js';
 import type { LinkedImport } from './import-fares.js';
 import { linkImportedFares } from './import-fares.js';
-import { applyDiscovery } from './discover.js';
+import { addCandidate, stampCandidates } from './shortlist.js';
+import type { SlotSearchRequest } from './slot-search.js';
+import { landSearchResults, slotSearchTarget } from './slot-search.js';
 import { useDiscovery } from './useDiscovery.js';
 import { useExtractor } from './useExtractor.js';
 import { useSettingsStore } from './useSettingsStore.js';
@@ -129,6 +135,7 @@ function Workspace({
 
   const [view, setView] = useState<View>('days');
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>();
+  const [tab, setTab] = useState<PanelTab>('flights');
   const [creating, setCreating] = useState(false);
   const [namingFirstStop, setNamingFirstStop] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -159,11 +166,76 @@ function Workspace({
   const tripNow = useRef(trip);
   tripNow.current = trip;
 
-  const findOptions = async (cardId: string) => {
-    const card = trip.cards.find((c) => c.id === cardId);
-    if (!card) return;
+  /**
+   * Things found to do, not yet on the trip.
+   *
+   * Session state on purpose: a candidate is a suggestion until a day is named for it, and
+   * persisting suggestions would fill saved trips with things nobody decided on.
+   */
+  const [shortlists, setShortlists] = useState<Record<string, readonly Option[]>>({});
+  // Bumped once per search, purely so `stampCandidates` can make each batch's ids unique — see the
+  // comment there for why identical ids across searches is a bug, not a curiosity. A plain counter
+  // rather than `Date.now()`: it is deterministic and trivial to reason about in a test.
+  const searchBatch = useRef(0);
+
+  const findThingsToDo = async (segmentId: string) => {
+    // The whole stay, not one day — "what is worth doing in Sao Paulo" is not a question about
+    // Tuesday. The card is thrown away either way; only its kind and anchor shape the query.
+    //
+    // `kind: 'activity'` paired with a `segment` anchor is not a legal combination for the card
+    // editor — `kindsForAnchor('segment')` would say lodging or a note, never an activity — but
+    // this card never reaches the editor or the trip. The `segment` anchor is precisely what makes
+    // `buildSearchQuery` ask about the whole stay instead of one day; do not "fix" this pair to
+    // `segment-day`, which would silently narrow every search back down to a single day.
+    const asking: Card = {
+      id: 'pending',
+      kind: 'activity',
+      state: 'unplanned',
+      anchor: { kind: 'segment', segmentId },
+      options: [],
+    };
     try {
-      const found = await discovery.find(trip, card);
+      const found = await discovery.find(trip, asking, `activities:${segmentId}`);
+      if (found.length === 0) {
+        setNotice(
+          "Claude searched but didn't find anything it could stand behind. Try adding what you " +
+            'find by hand.',
+        );
+        return;
+      }
+      searchBatch.current += 1;
+      const stamped = stampCandidates(found, segmentId, searchBatch.current);
+      setShortlists((current) => ({ ...current, [segmentId]: stamped }));
+      setNotice(
+        `Found ${found.length} thing${found.length === 1 ? '' : 's'} to consider — none of it is ` +
+          'on your trip until you pick a day for it.',
+      );
+    } catch (error) {
+      setNotice(describeExtractionError(error).message);
+    }
+  };
+
+  const dropCandidate = (segmentId: string, candidate: Option) =>
+    setShortlists((current) => ({
+      ...current,
+      [segmentId]: (current[segmentId] ?? []).filter((o) => o.id !== candidate.id),
+    }));
+
+  const acceptCandidate = (segmentId: string, candidate: Option, dayOffset: number) => {
+    const next = addCandidate(tripNow.current, candidate, segmentId, dayOffset);
+    if (!next) {
+      setNotice(`That stop is gone, so ${candidate.title} was not added.`);
+      dropCandidate(segmentId, candidate);
+      return;
+    }
+    update(next);
+    dropCandidate(segmentId, candidate);
+  };
+
+  const findForSlot = async (request: SlotSearchRequest) => {
+    const target = slotSearchTarget(request);
+    try {
+      const found = await discovery.find(trip, target.card, target.key);
       if (found.length === 0) {
         setNotice(
           "Claude searched but didn't find anything it could stand behind. Try adding what you " +
@@ -173,15 +245,15 @@ function Workspace({
       }
       // Minutes have passed and the app stayed live. The slot these were found for may not be
       // there any more, and "Found 0 options" would explain none of that.
-      if (!tripNow.current.cards.some((c) => c.id === cardId)) {
+      const outcome = landSearchResults(tripNow.current, target, found);
+      if (!outcome) {
         setNotice(
-          `Claude found ${found.length} option${found.length === 1 ? '' : 's'}, but the card they ` +
+          `Claude found ${found.length} option${found.length === 1 ? '' : 's'}, but the slot they ` +
             'were for is gone. Nothing was added.',
         );
         return;
       }
 
-      const outcome = applyDiscovery(tripNow.current, cardId, found);
       update(outcome.trip);
       reportLinking(outcome);
       setNotice(
@@ -226,15 +298,36 @@ function Workspace({
 
   // Everything below is derived. No planning state is stored twice, so the two views cannot
   // disagree and the budget cannot go stale.
-  const { schedule, budget, placed, conflicts } = useMemo(() => {
+  const { schedule, budget, placed, conflicts, slots } = useMemo(() => {
     const schedule = runSchedule(trip);
     return {
       schedule,
       budget: computeBudget(trip, schedule),
       placed: placeCards(trip, schedule),
       conflicts: [...schedule.conflicts, ...detectCompatibilityConflicts(trip, schedule)],
+      slots: tripSlots(trip, schedule),
     };
   }, [trip]);
+
+  /**
+   * Selecting a card anywhere puts the panel on its tab.
+   *
+   * One card has one home, so a flight clicked in the day grid always opens under Flights — even
+   * though its leg is also listed under Transport.
+   *
+   * `kind` is an escape hatch for callers that just created the card they are selecting.
+   * `trip` here is the value closed over by this render, and `update(...)` does not mutate it in
+   * place — the new trip with the new card only arrives on the render after this one runs. Looking
+   * the id up in `trip.cards` for a card born this same tick finds nothing, so the tab silently
+   * fails to move. A caller that already knows what kind it just built should say so rather than
+   * rely on a lookup that cannot see it yet. Do not delete this parameter as unused-looking
+   * cleverness — it exists because of that exact trap.
+   */
+  const selectCard = (id: string, kind?: CardKind) => {
+    setSelectedCardId(id);
+    const resolved = kind ?? trip.cards.find((c) => c.id === id)?.kind;
+    if (resolved) setTab(tabForKind(resolved));
+  };
 
   /** A leg that exists but has no times yet. Nothing to correct, everything still to fill in. */
   const editingPlaceholder =
@@ -274,7 +367,9 @@ function Workspace({
     const after = splitStay(trip, segmentId, fromNight);
     if (after === trip) return;
     update(after);
-    setSelectedCardId(after.cards[after.cards.length - 1]!.id);
+    // A split stay's new card is always lodging, and it was born this same tick — trip.cards
+    // cannot see it yet, so the kind has to be handed in rather than looked up.
+    selectCard(after.cards[after.cards.length - 1]!.id, 'lodging');
   };
 
   /**
@@ -355,7 +450,8 @@ function Workspace({
 
       reportLinking(linked);
       update(linked.trip);
-      setSelectedCardId(cardId);
+      // Born this same tick — trip.cards cannot see it yet, so the kind has to be handed in.
+      selectCard(cardId, draft.kind);
     } else if (editor.mode === 'new-option') {
       const card = trip.cards.find((c) => c.id === editor.cardId);
       if (card) {
@@ -647,7 +743,7 @@ function Workspace({
               placed={placed}
               selectedCardId={selectedCardId}
               conflictedCardIds={conflictedCardIds}
-              onSelectCard={setSelectedCardId}
+              onSelectCard={selectCard}
               onAdd={(anchor) =>
                 openEditor({ mode: 'new-card', anchor, kinds: kindsForAnchor(anchor.kind) })
               }
@@ -661,7 +757,7 @@ function Workspace({
               selectedCardId={selectedCardId}
               conflictedCardIds={conflictedCardIds}
               conflictedSegmentIds={conflictedSegmentIds}
-              onSelectCard={setSelectedCardId}
+              onSelectCard={selectCard}
               onChangeDuration={changeDuration}
               onAdd={(anchor, kinds) => openEditor({ mode: 'new-card', anchor, kinds })}
               onAddStop={(name, at) => applyEdit(addSegment(trip, name, at), 'Added a stop.')}
@@ -679,7 +775,25 @@ function Workspace({
         trip={trip}
         schedule={schedule}
         placed={placed}
+        slots={slots}
+        tab={tab}
+        onChangeTab={(next) => {
+          setTab(next);
+          // Switching tabs means going to that tab's list, not carrying a detail view across.
+          setSelectedCardId(undefined);
+        }}
         selectedCardId={selectedCardId}
+        conflictedCardIds={conflictedCardIds}
+        onSelectCard={selectCard}
+        onAddToSlot={(anchor, kinds) => openEditor({ mode: 'new-card', anchor, kinds })}
+        onFindForSlot={(request) => void findForSlot(request)}
+        canSearch={discovery.available}
+        shortlists={shortlists}
+        daysOfSegment={daysOfSegment}
+        onAcceptCandidate={acceptCandidate}
+        onDismissCandidate={dropCandidate}
+        onFindThingsToDo={(segmentId) => void findThingsToDo(segmentId)}
+        onBack={() => setSelectedCardId(undefined)}
         onChooseOption={chooseOption}
         onChangeState={changeState}
         onChangeRanking={changeRanking}
@@ -691,8 +805,18 @@ function Workspace({
           update(removeCard(trip, cardId));
           setSelectedCardId(undefined);
         }}
-        {...(discovery.available ? { onFindOptions: (cardId: string) => void findOptions(cardId) } : {})}
-        searchingCardId={discovery.searchingCardId}
+        {...(discovery.available
+          ? {
+              onFindOptions: (card: Card) =>
+                void findForSlot({
+                  existing: card,
+                  anchor: card.anchor,
+                  kind: card.kind,
+                  slotKey: card.id,
+                }),
+            }
+          : {})}
+        searchingSlotId={discovery.searchingSlotId}
       />
 
       {creating ? (

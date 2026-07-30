@@ -4,6 +4,7 @@ export * from './conflicts.js';
 export * from './scheduler.js';
 export * from './layout.js';
 export * from './stays.js';
+export * from './slots.js';
 export * from './fare-group.js';
 export * from './budget.js';
 export * from './compatibility.js';
