@@ -37,6 +37,7 @@ import type { CardDraft, DayChoice } from './CardEditor.js';
 import { CardEditor, draftFromOption, emptyDraft, optionFrom } from './CardEditor.js';
 import { CreateTripDialog } from './CreateTripDialog.js';
 import { DayView } from './DayView.js';
+import { InlinePrompt } from './InlinePrompt.js';
 import { OptionsPanel } from './OptionsPanel.js';
 import { PasteImportBox } from './PasteImportBox.js';
 import { SaveStatus } from './SaveStatus.js';
@@ -129,6 +130,7 @@ function Workspace({
   const [view, setView] = useState<View>('days');
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>();
   const [creating, setCreating] = useState(false);
+  const [namingFirstStop, setNamingFirstStop] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -617,16 +619,25 @@ function Workspace({
           {trip.segments.length === 0 ? (
             <div className="blank">
               <p>Nowhere to go yet.</p>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => {
-                  const name = window.prompt('Where to?');
-                  if (name?.trim()) applyEdit(addSegment(trip, name.trim()), 'Added a stop.');
-                }}
-              >
-                Add the first stop
-              </button>
+              {namingFirstStop ? (
+                <InlinePrompt
+                  label="Where to?"
+                  placeholder="São Paulo"
+                  onSubmit={(name) => {
+                    setNamingFirstStop(false);
+                    applyEdit(addSegment(trip, name), 'Added a stop.');
+                  }}
+                  onCancel={() => setNamingFirstStop(false)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => setNamingFirstStop(true)}
+                >
+                  Add the first stop
+                </button>
+              )}
             </div>
           ) : view === 'days' ? (
             <DayView

@@ -1167,6 +1167,36 @@ button {
   padding: 2px 0;
 }
 
+/*
+ * A question asked in place of the button that raised it, so the answer is typed where the thing
+ * being named is about to appear.
+ */
+.inlineq {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inlineq__field {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 9px;
+  min-width: 180px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.inlineq__field:focus-visible {
+  border-color: var(--accent);
+}
+
+.btn--small {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
 .seg__tools {
   display: flex;
   gap: 2px;
@@ -1328,6 +1358,10 @@ button {
 
 .blank p {
   margin: 0 0 14px;
+}
+
+.blank .inlineq {
+  justify-content: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

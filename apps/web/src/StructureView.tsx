@@ -1,6 +1,8 @@
 import type { CardAnchor, CardKind, PlacedCard, Schedule, Trip } from '@odysseus/domain';
 import { addDays, stayNights, staysInOrder } from '@odysseus/domain';
+import { useState } from 'react';
 import { money, shortDate } from './format.js';
+import { InlinePrompt } from './InlinePrompt.js';
 import { TravelCard } from './TravelCard.js';
 
 /**
@@ -88,26 +90,24 @@ export function StructureView({
         0,
       );
 
-  const promptStop = (atIndex?: number) => {
-    const name = window.prompt('Where to?');
-    if (name?.trim()) onAddStop(name.trim(), atIndex);
-  };
+  /** Which gap between stops is currently being named, if any. */
+  const [asking, setAsking] = useState<number | null>(null);
+  /** Which stay is being split, if any. */
+  const [splitting, setSplitting] = useState<string | null>(null);
 
   const nights = stayNights(trip, schedule);
 
   /**
-   * Split a stay from a chosen night on.
+   * Nights you can change hotels on.
    *
-   * Nights are counted the way a traveller counts them, from one, and the first night is excluded
-   * because moving on the night you arrive is not a change of hotel, it is a different hotel.
+   * Counted the way a traveller counts them, from one, and the first night is excluded because
+   * moving on the night you arrive is not a change of hotel, it is a different hotel.
    */
-  const promptSplit = (segmentId: string, total: number) => {
-    const answer = window.prompt(`Change hotels from which night? (2–${total})`);
-    if (answer === null) return;
-    const night = Number(answer.trim());
-    if (!Number.isInteger(night) || night < 2 || night > total) return;
-    onSplitStay(segmentId, night - 1);
-  };
+  const splitChoices = (total: number) =>
+    Array.from({ length: total - 1 }, (_, i) => ({
+      value: String(i + 2),
+      label: `From night ${i + 2}`,
+    }));
 
   const renderLeg = (connectionId: string | undefined, label: string) => {
     if (!connectionId) return null;
@@ -275,14 +275,27 @@ export function StructureView({
                     + Somewhere to stay
                   </button>
                 ) : scheduled.nights > 1 ? (
-                  <button
-                    type="button"
-                    className="add"
-                    onClick={() => promptSplit(segment.id, scheduled.nights)}
-                    title={`Stay somewhere else partway through ${segment.location.name}`}
-                  >
-                    + Change hotels partway
-                  </button>
+                  splitting === segment.id ? (
+                    <InlinePrompt
+                      label={`Change hotels partway through ${segment.location.name}`}
+                      choices={splitChoices(scheduled.nights)}
+                      submitLabel="Split"
+                      onSubmit={(value) => {
+                        setSplitting(null);
+                        onSplitStay(segment.id, Number(value) - 1);
+                      }}
+                      onCancel={() => setSplitting(null)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="add"
+                      onClick={() => setSplitting(segment.id)}
+                      title={`Stay somewhere else partway through ${segment.location.name}`}
+                    >
+                      + Change hotels partway
+                    </button>
+                  )
                 ) : null}
                 <button
                   type="button"
@@ -299,9 +312,25 @@ export function StructureView({
             {renderLeg(onward?.id, 'No way onward yet')}
 
             <div className="insert">
-              <button type="button" className="add add--quiet" onClick={() => promptStop(index + 1)}>
-                + Add a stop here
-              </button>
+              {asking === index + 1 ? (
+                <InlinePrompt
+                  label="Where to?"
+                  placeholder="Rio de Janeiro"
+                  onSubmit={(name) => {
+                    setAsking(null);
+                    onAddStop(name, index + 1);
+                  }}
+                  onCancel={() => setAsking(null)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="add add--quiet"
+                  onClick={() => setAsking(index + 1)}
+                >
+                  + Add a stop here
+                </button>
+              )}
             </div>
           </div>
         );
